@@ -1,0 +1,20 @@
+# Rust
+/target
+**/*.rs.bk
+Cargo.lock.bak
+
+# 前端 (Phase 3)
+/frontend/node_modules
+/frontend/dist
+/frontend/.vite
+
+# SQLite 运行时数据
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# 环境 / 系统
+.env
+.env.*
+.DS_Store
