@@ -25,6 +25,8 @@ pub struct Card {
     pub due: NaiveDate,
     pub created: NaiveDate,
     pub updated: DateTime<Utc>,
+    /// 所属模块（nullable：散卡无模块）。
+    pub module_id: Option<String>,
 }
 
 impl Card {
@@ -46,6 +48,7 @@ impl Card {
             due: today,
             created: today,
             updated: Utc::now(),
+            module_id: None,
         }
     }
 }
@@ -116,6 +119,198 @@ pub struct ReviewLog {
     pub reviewed_at: DateTime<Utc>,
     pub prev_due: Option<NaiveDate>,
     pub new_due: NaiveDate,
+}
+
+// ───────────────────────── Goal ─────────────────────────
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum GoalStatus {
+    #[default]
+    Active,
+    Achieved,
+    Abandoned,
+}
+impl GoalStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Achieved => "achieved",
+            Self::Abandoned => "abandoned",
+        }
+    }
+    pub fn parse(s: &str) -> Self {
+        match s.trim() {
+            "achieved" => Self::Achieved,
+            "abandoned" => Self::Abandoned,
+            _ => Self::Active,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Goal {
+    pub id: String,
+    pub title: String,
+    pub description: String,
+    pub success_criteria: String,
+    pub topic: Option<String>,
+    pub status: GoalStatus,
+    pub created: NaiveDate,
+    pub achieved_at: Option<NaiveDate>,
+}
+impl Goal {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            id: gen_id(),
+            title: title.into(),
+            description: String::new(),
+            success_criteria: String::new(),
+            topic: None,
+            status: GoalStatus::Active,
+            created: Utc::now().date_naive(),
+            achieved_at: None,
+        }
+    }
+}
+
+// ──────────────────────── Pathway ────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Pathway {
+    pub id: String,
+    pub name: String,
+    pub methodology: String,
+    pub description: String,
+    pub goal_id: String,
+    pub is_active: bool,
+    pub created: NaiveDate,
+}
+impl Pathway {
+    pub fn new(name: impl Into<String>, goal_id: impl Into<String>) -> Self {
+        Self {
+            id: gen_id(),
+            name: name.into(),
+            methodology: String::new(),
+            description: String::new(),
+            goal_id: goal_id.into(),
+            is_active: false,
+            created: Utc::now().date_naive(),
+        }
+    }
+}
+
+// ──────────────────────── Module ─────────────────────────
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModuleStatus {
+    #[default]
+    NotStarted,
+    Learning,
+    Mastered,
+}
+impl ModuleStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::NotStarted => "not_started",
+            Self::Learning => "learning",
+            Self::Mastered => "mastered",
+        }
+    }
+    pub fn parse(s: &str) -> Self {
+        match s.trim() {
+            "learning" => Self::Learning,
+            "mastered" => Self::Mastered,
+            _ => Self::NotStarted,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Module {
+    pub id: String,
+    pub title: String,
+    pub topic: Option<String>,
+    pub description: String,
+    pub status: ModuleStatus,
+}
+impl Module {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            id: gen_id(),
+            title: title.into(),
+            topic: None,
+            description: String::new(),
+            status: ModuleStatus::NotStarted,
+        }
+    }
+}
+
+// ──────────────────── PathwayModule ──────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PathwayModule {
+    pub pathway_id: String,
+    pub module_id: String,
+    pub sort_order: i64,
+    /// 前置模块 id 列表（简单依赖）。
+    pub depends_on: Vec<String>,
+}
+impl PathwayModule {
+    pub fn new(
+        pathway_id: impl Into<String>,
+        module_id: impl Into<String>,
+        sort_order: i64,
+    ) -> Self {
+        Self {
+            pathway_id: pathway_id.into(),
+            module_id: module_id.into(),
+            sort_order,
+            depends_on: vec![],
+        }
+    }
+}
+
+// ──────────────────────── Session ────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Session {
+    pub id: i64,
+    pub started_at: DateTime<Utc>,
+    pub ended_at: Option<DateTime<Utc>>,
+    pub goal_id: Option<String>,
+    pub pathway_id: Option<String>,
+    pub summary: String,
+    pub new_cards: i64,
+    pub reviewed: i64,
+}
+
+// ──────────────────── LearnerProfile ─────────────────────
+
+/// AI 温和记忆（单例，id=1）。半结构化：固定字段 + 自由 notes。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LearnerProfile {
+    pub id: i64,
+    pub level: String,
+    pub style: String,
+    pub weak_points: Vec<String>,
+    pub preferences: serde_json::Value,
+    pub notes: String,
+    pub updated: DateTime<Utc>,
+}
+impl Default for LearnerProfile {
+    fn default() -> Self {
+        Self {
+            id: 1,
+            level: String::new(),
+            style: String::new(),
+            weak_points: vec![],
+            preferences: serde_json::json!({}),
+            notes: String::new(),
+            updated: Utc::now(),
+        }
+    }
 }
 
 // ───────────────────────── 公用 ─────────────────────────

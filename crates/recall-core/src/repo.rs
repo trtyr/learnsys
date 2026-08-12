@@ -6,7 +6,7 @@
 use chrono::{DateTime, NaiveDate, Utc};
 use rusqlite::{params, Connection, Row};
 
-use crate::entity::{Card, ReviewLog, Topic, TopicStatus};
+use crate::entity::{Card, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway, PathwayModule, ReviewLog, Session, Topic, TopicStatus};
 use crate::sm2;
 
 #[derive(Debug, thiserror::Error)]
@@ -71,6 +71,7 @@ fn card_from_row(r: &Row) -> rusqlite::Result<Card> {
         due: conv(parse_date(&due))?,
         created: conv(parse_date(&created))?,
         updated: conv(parse_dt(&updated))?,
+        module_id: r.get("module_id")?,
     })
 }
 
@@ -108,11 +109,12 @@ fn log_from_row(r: &Row) -> rusqlite::Result<ReviewLog> {
 pub fn insert_card(conn: &Connection, c: &Card) -> Result<()> {
     conn.execute(
         "INSERT OR REPLACE INTO cards
-         (id, topic, front, back, ef, interval, reps, due, created, updated)
-         VALUES (?,?,?,?,?,?,?,?,?,?)",
+         (id, topic, module_id, front, back, ef, interval, reps, due, created, updated)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?)",
         params![
             c.id,
             c.topic,
+            c.module_id,
             c.front,
             c.back,
             c.ef,
@@ -264,6 +266,291 @@ pub fn list_logs_by_card(conn: &Connection, card_id: &str) -> Result<Vec<ReviewL
         conn.prepare("SELECT * FROM review_logs WHERE card_id = ? ORDER BY reviewed_at DESC")?;
     let rows = stmt.query_map(params![card_id], log_from_row)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+// ───────────────────── Goal ─────────────────────
+
+fn goal_from_row(r: &Row) -> rusqlite::Result<Goal> {
+    let created: String = r.get("created")?;
+    let achieved: Option<String> = r.get("achieved_at")?;
+    let status: String = r.get("status")?;
+    Ok(Goal {
+        id: r.get("id")?,
+        title: r.get("title")?,
+        description: r.get("description")?,
+        success_criteria: r.get("success_criteria")?,
+        topic: r.get("topic")?,
+        status: GoalStatus::parse(&status),
+        created: conv(parse_date(&created))?,
+        achieved_at: achieved.as_deref().and_then(|s| parse_date(s).ok()),
+    })
+}
+
+pub fn insert_goal(conn: &Connection, g: &Goal) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO goals (id,title,description,success_criteria,topic,status,created,achieved_at) VALUES (?,?,?,?,?,?,?,?)",
+        params![g.id, g.title, g.description, g.success_criteria, g.topic, g.status.as_str(), to_date_str(g.created), g.achieved_at.map(to_date_str)],
+    )?;
+    Ok(())
+}
+
+pub fn get_goal(conn: &Connection, id: &str) -> Result<Goal> {
+    conn.query_row("SELECT * FROM goals WHERE id=?", params![id], goal_from_row)
+        .map_err(notfound("goal", id))
+}
+
+pub fn list_goals(conn: &Connection) -> Result<Vec<Goal>> {
+    let mut stmt = conn.prepare("SELECT * FROM goals ORDER BY created DESC")?;
+    let rows = stmt.query_map([], goal_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+// ──────────────────── Pathway ────────────────────
+
+fn pathway_from_row(r: &Row) -> rusqlite::Result<Pathway> {
+    let created: String = r.get("created")?;
+    Ok(Pathway {
+        id: r.get("id")?,
+        name: r.get("name")?,
+        methodology: r.get("methodology")?,
+        description: r.get("description")?,
+        goal_id: r.get("goal_id")?,
+        is_active: r.get::<_, i64>("is_active")? != 0,
+        created: conv(parse_date(&created))?,
+    })
+}
+
+pub fn insert_pathway(conn: &Connection, p: &Pathway) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO pathways (id,name,methodology,description,goal_id,is_active,created) VALUES (?,?,?,?,?,?,?)",
+        params![p.id, p.name, p.methodology, p.description, p.goal_id, p.is_active as i64, to_date_str(p.created)],
+    )?;
+    Ok(())
+}
+
+pub fn get_pathway(conn: &Connection, id: &str) -> Result<Pathway> {
+    conn.query_row("SELECT * FROM pathways WHERE id=?", params![id], pathway_from_row)
+        .map_err(notfound("pathway", id))
+}
+
+pub fn list_pathways_by_goal(conn: &Connection, goal_id: &str) -> Result<Vec<Pathway>> {
+    let mut stmt = conn.prepare("SELECT * FROM pathways WHERE goal_id=? ORDER BY created")?;
+    let rows = stmt.query_map(params![goal_id], pathway_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+// ──────────────────── Module ────────────────────
+
+fn module_from_row(r: &Row) -> rusqlite::Result<Module> {
+    let status: String = r.get("status")?;
+    Ok(Module {
+        id: r.get("id")?,
+        title: r.get("title")?,
+        topic: r.get("topic")?,
+        description: r.get("description")?,
+        status: ModuleStatus::parse(&status),
+    })
+}
+
+pub fn insert_module(conn: &Connection, m: &Module) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO modules (id,title,topic,description,status) VALUES (?,?,?,?,?)",
+        params![m.id, m.title, m.topic, m.description, m.status.as_str()],
+    )?;
+    Ok(())
+}
+
+pub fn get_module(conn: &Connection, id: &str) -> Result<Module> {
+    conn.query_row("SELECT * FROM modules WHERE id=?", params![id], module_from_row)
+        .map_err(notfound("module", id))
+}
+
+pub fn list_modules(conn: &Connection, topic: Option<&str>) -> Result<Vec<Module>> {
+    let (sql, params_opt) = match topic {
+        Some(t) => ("SELECT * FROM modules WHERE topic=? ORDER BY title", Some(t.to_string())),
+        None => ("SELECT * FROM modules ORDER BY title", None),
+    };
+    let mut stmt = conn.prepare(sql)?;
+    let rows = match &params_opt {
+        Some(p) => stmt.query_map(params![p.as_str()], module_from_row)?,
+        None => stmt.query_map([], module_from_row)?,
+    };
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+// ──────────────── PathwayModule ─────────────────
+
+fn pm_from_row(r: &Row) -> rusqlite::Result<PathwayModule> {
+    let deps: String = r.get("depends_on").unwrap_or_default();
+    Ok(PathwayModule {
+        pathway_id: r.get("pathway_id")?,
+        module_id: r.get("module_id")?,
+        sort_order: r.get("sort_order")?,
+        depends_on: if deps.is_empty() {
+            vec![]
+        } else {
+            deps.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+        },
+    })
+}
+
+pub fn insert_pathway_module(conn: &Connection, pm: &PathwayModule) -> Result<()> {
+    let deps = pm.depends_on.join(",");
+    conn.execute(
+        "INSERT OR REPLACE INTO pathway_modules (pathway_id,module_id,sort_order,depends_on) VALUES (?,?,?,?)",
+        params![pm.pathway_id, pm.module_id, pm.sort_order, deps],
+    )?;
+    Ok(())
+}
+
+pub fn list_pathway_modules(conn: &Connection, pathway_id: &str) -> Result<Vec<PathwayModule>> {
+    let mut stmt =
+        conn.prepare("SELECT * FROM pathway_modules WHERE pathway_id=? ORDER BY sort_order")?;
+    let rows = stmt.query_map(params![pathway_id], pm_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// 给定路径，按顺序 + 依赖计算下一个可学模块。
+/// 返回 (模块, 当前序号, 总模块数)。None = 路径完成或被卡住。
+pub fn next_module(
+    conn: &Connection,
+    pathway_id: &str,
+) -> Result<Option<(Module, usize, usize)>> {
+    let pms = list_pathway_modules(conn, pathway_id)?;
+    if pms.is_empty() {
+        return Ok(None);
+    }
+    let mastered: std::collections::HashSet<String> = pms
+        .iter()
+        .filter_map(|pm| {
+            let m = get_module(conn, &pm.module_id).ok()?;
+            if matches!(m.status, ModuleStatus::Mastered) {
+                Some(pm.module_id.clone())
+            } else {
+                None
+            }
+        })
+        .collect();
+    for (i, pm) in pms.iter().enumerate() {
+        if mastered.contains(&pm.module_id) {
+            continue;
+        }
+        if pm.depends_on.iter().all(|d| mastered.contains(d)) {
+            let m = get_module(conn, &pm.module_id)?;
+            return Ok(Some((m, i + 1, pms.len())));
+        }
+    }
+    Ok(None)
+}
+
+// ──────────────────── Session ────────────────────
+
+fn session_from_row(r: &Row) -> rusqlite::Result<Session> {
+    let started: String = r.get("started_at")?;
+    let ended: Option<String> = r.get("ended_at")?;
+    Ok(Session {
+        id: r.get("id")?,
+        goal_id: r.get("goal_id")?,
+        pathway_id: r.get("pathway_id")?,
+        summary: r.get("summary")?,
+        new_cards: r.get("new_cards")?,
+        reviewed: r.get("reviewed")?,
+        started_at: conv(parse_dt(&started))?,
+        ended_at: ended.as_deref().and_then(|s| parse_dt(s).ok()),
+    })
+}
+
+pub fn start_session(
+    conn: &Connection,
+    goal_id: Option<&str>,
+    pathway_id: Option<&str>,
+) -> Result<Session> {
+    let now = Utc::now().to_rfc3339();
+    conn.execute(
+        "INSERT INTO sessions (started_at, goal_id, pathway_id) VALUES (?,?,?)",
+        params![now, goal_id, pathway_id],
+    )?;
+    let id = conn.last_insert_rowid();
+    Ok(Session {
+        id,
+        started_at: Utc::now(),
+        ended_at: None,
+        goal_id: goal_id.map(String::from),
+        pathway_id: pathway_id.map(String::from),
+        summary: String::new(),
+        new_cards: 0,
+        reviewed: 0,
+    })
+}
+
+pub fn end_session(
+    conn: &Connection,
+    id: i64,
+    summary: &str,
+    new_cards: i64,
+    reviewed: i64,
+) -> Result<()> {
+    let n = conn.execute(
+        "UPDATE sessions SET ended_at=?, summary=?, new_cards=?, reviewed=? WHERE id=?",
+        params![Utc::now().to_rfc3339(), summary, new_cards, reviewed, id],
+    )?;
+    if n == 0 {
+        return Err(RepoError::NotFound(format!("session {id}")));
+    }
+    Ok(())
+}
+
+pub fn list_sessions(conn: &Connection, limit: i64) -> Result<Vec<Session>> {
+    let mut stmt = conn.prepare("SELECT * FROM sessions ORDER BY started_at DESC LIMIT ?")?;
+    let rows = stmt.query_map(params![limit], session_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+// ───────────────── LearnerProfile ────────────────
+
+fn profile_from_row(r: &Row) -> rusqlite::Result<LearnerProfile> {
+    let updated: String = r.get("updated")?;
+    let wp: String = r.get("weak_points")?;
+    let prefs: String = r.get("preferences")?;
+    Ok(LearnerProfile {
+        id: r.get("id")?,
+        level: r.get("level")?,
+        style: r.get("style")?,
+        notes: r.get("notes")?,
+        weak_points: serde_json::from_str(&wp).unwrap_or_default(),
+        preferences: serde_json::from_str(&prefs).unwrap_or_else(|_| serde_json::json!({})),
+        updated: conv(parse_dt(&updated))?,
+    })
+}
+
+pub fn get_profile(conn: &Connection) -> Result<LearnerProfile> {
+    conn.query_row("SELECT * FROM learner_profile WHERE id=1", [], profile_from_row)
+        .map_err(|e| match e {
+            rusqlite::Error::QueryReturnedNoRows => {
+                RepoError::NotFound("learner_profile".into())
+            }
+            other => RepoError::Sqlite(other),
+        })
+}
+
+pub fn upsert_profile(conn: &Connection, p: &LearnerProfile) -> Result<()> {
+    conn.execute(
+        "INSERT INTO learner_profile (id, level, style, weak_points, preferences, notes, updated)
+         VALUES (1,?,?,?,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET
+            level=excluded.level, style=excluded.style,
+            weak_points=excluded.weak_points, preferences=excluded.preferences,
+            notes=excluded.notes, updated=excluded.updated",
+        params![
+            p.level,
+            p.style,
+            serde_json::to_string(&p.weak_points).unwrap_or_default(),
+            p.preferences.to_string(),
+            p.notes,
+            p.updated.to_rfc3339(),
+        ],
+    )?;
+    Ok(())
 }
 
 // ────────────────── 聚合视图（为 stats / dashboard 看板） ──────────────────
