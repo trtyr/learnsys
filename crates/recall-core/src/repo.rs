@@ -305,6 +305,22 @@ pub fn list_goals(conn: &Connection) -> Result<Vec<Goal>> {
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+pub fn update_goal_status(
+    conn: &Connection,
+    id: &str,
+    status: GoalStatus,
+    achieved_at: Option<NaiveDate>,
+) -> Result<()> {
+    let n = conn.execute(
+        "UPDATE goals SET status=?, achieved_at=? WHERE id=?",
+        params![status.as_str(), achieved_at.map(to_date_str), id],
+    )?;
+    if n == 0 {
+        return Err(RepoError::NotFound(format!("goal {id}")));
+    }
+    Ok(())
+}
+
 // ──────────────────── Pathway ────────────────────
 
 fn pathway_from_row(r: &Row) -> rusqlite::Result<Pathway> {

@@ -22,7 +22,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tower_http::cors::CorsLayer;
 
-use recall_core::entity::{Card, Topic, TopicStatus};
+use recall_core::entity::{Card, Goal, GoalStatus, Module, ModuleStatus, Pathway, PathwayModule, Session, Topic, TopicStatus};
 use recall_core::repo::{self, RepoError};
 
 #[derive(Clone)]
@@ -53,6 +53,15 @@ async fn main() {
         .route("/api/topics/:id", get(get_topic).put(update_topic))
         .route("/api/stats", get(stats))
         .route("/api/dashboard", get(dashboard))
+        .route("/api/goals", post(create_goal).get(list_goals))
+        .route("/api/goals/:id", get(get_goal))
+        .route("/api/goals/:id/status", put(update_goal_status))
+        .route("/api/pathways", post(create_pathway).get(list_pathways))
+        .route("/api/pathways/:id", get(get_pathway))
+        .route("/api/pathways/:id/modules", post(add_pathway_module).get(list_pathway_mods))
+        .route("/api/pathways/:id/next", get(next_module))
+        .route("/api/modules", post(create_module).get(list_modules))
+        .route("/api/sessions/start", post(session_start))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -290,4 +299,191 @@ async fn stats(State(s): State<AppState>) -> Result<Json<repo::Stats>, ApiError>
 async fn dashboard(State(s): State<AppState>) -> Result<Json<repo::Dashboard>, ApiError> {
     let db = s.db.lock().unwrap();
     Ok(Json(repo::dashboard(&db, Utc::now().date_naive())?))
+}
+
+// ─────────────────── lms: goals ───────────────────
+
+#[derive(Deserialize)]
+struct CreateGoal {
+    title: String,
+    description: Option<String>,
+    success_criteria: Option<String>,
+    topic: Option<String>,
+}
+
+async fn create_goal(
+    State(s): State<AppState>,
+    Json(body): Json<CreateGoal>,
+) -> Result<(StatusCode, Json<Goal>), ApiError> {
+    let db = s.db.lock().unwrap();
+    let mut g = Goal::new(body.title);
+    g.description = body.description.unwrap_or_default();
+    g.success_criteria = body.success_criteria.unwrap_or_default();
+    g.topic = body.topic;
+    repo::insert_goal(&db, &g)?;
+    Ok((StatusCode::CREATED, Json(g)))
+}
+
+async fn list_goals(State(s): State<AppState>) -> Result<Json<Vec<Goal>>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::list_goals(&db)?))
+}
+
+async fn get_goal(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Goal>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::get_goal(&db, &id)?))
+}
+
+#[derive(Deserialize)]
+struct UpdateGoalStatus {
+    status: String,
+    achieved_at: Option<String>,
+}
+
+async fn update_goal_status(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateGoalStatus>,
+) -> Result<StatusCode, ApiError> {
+    let db = s.db.lock().unwrap();
+    let achieved = body
+        .achieved_at
+        .and_then(|s| NaiveDate::parse_from_str(&s, "%Y-%m-%d").ok());
+    repo::update_goal_status(&db, &id, GoalStatus::parse(&body.status), achieved)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ─────────────────── lms: pathways ───────────────────
+
+#[derive(Deserialize)]
+struct CreatePathway {
+    name: String,
+    goal_id: String,
+    methodology: Option<String>,
+    description: Option<String>,
+}
+
+async fn create_pathway(
+    State(s): State<AppState>,
+    Json(body): Json<CreatePathway>,
+) -> Result<(StatusCode, Json<Pathway>), ApiError> {
+    let db = s.db.lock().unwrap();
+    let mut p = Pathway::new(body.name, body.goal_id);
+    p.methodology = body.methodology.unwrap_or_default();
+    p.description = body.description.unwrap_or_default();
+    repo::insert_pathway(&db, &p)?;
+    Ok((StatusCode::CREATED, Json(p)))
+}
+
+async fn get_pathway(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Pathway>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::get_pathway(&db, &id)?))
+}
+
+#[derive(Deserialize)]
+struct PathwayQuery {
+    goal: Option<String>,
+}
+
+async fn list_pathways(
+    State(s): State<AppState>,
+    Query(q): Query<PathwayQuery>,
+) -> Result<Json<Vec<Pathway>>, ApiError> {
+    let db = s.db.lock().unwrap();
+    match q.goal {
+        Some(gid) => Ok(Json(repo::list_pathways_by_goal(&db, &gid)?)),
+        None => Err(ApiError { status: StatusCode::BAD_REQUEST, code: "missing_param", message: "需要 ?goal=" .into() }),
+    }
+}
+
+// ─────────────────── lms: modules ───────────────────
+
+#[derive(Deserialize)]
+struct CreateModule {
+    title: String,
+    topic: Option<String>,
+    description: Option<String>,
+}
+
+async fn create_module(
+    State(s): State<AppState>,
+    Json(body): Json<CreateModule>,
+) -> Result<(StatusCode, Json<Module>), ApiError> {
+    let db = s.db.lock().unwrap();
+    let mut m = Module::new(body.title);
+    m.topic = body.topic;
+    m.description = body.description.unwrap_or_default();
+    repo::insert_module(&db, &m)?;
+    Ok((StatusCode::CREATED, Json(m)))
+}
+
+async fn list_modules(
+    State(s): State<AppState>,
+    Query(q): Query<TopicQuery>,
+) -> Result<Json<Vec<Module>>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::list_modules(&db, q.topic.as_deref())?))
+}
+
+// ─────────────── lms: pathway ↔ modules ─────────────
+
+#[derive(Deserialize)]
+struct AddPathwayModule {
+    module_id: String,
+    sort_order: i64,
+    depends_on: Option<Vec<String>>,
+}
+
+async fn add_pathway_module(
+    State(s): State<AppState>,
+    Path(pathway_id): Path<String>,
+    Json(body): Json<AddPathwayModule>,
+) -> Result<(StatusCode, Json<PathwayModule>), ApiError> {
+    let db = s.db.lock().unwrap();
+    let mut pm = PathwayModule::new(&pathway_id, body.module_id, body.sort_order);
+    pm.depends_on = body.depends_on.unwrap_or_default();
+    repo::insert_pathway_module(&db, &pm)?;
+    Ok((StatusCode::CREATED, Json(pm)))
+}
+
+async fn list_pathway_mods(
+    State(s): State<AppState>,
+    Path(pathway_id): Path<String>,
+) -> Result<Json<Vec<PathwayModule>>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::list_pathway_modules(&db, &pathway_id)?))
+}
+
+async fn next_module(
+    State(s): State<AppState>,
+    Path(pathway_id): Path<String>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    let db = s.db.lock().unwrap();
+    match repo::next_module(&db, &pathway_id)? {
+        Some((m, idx, total)) => Ok(Json(json!({"module": m, "position": idx, "total": total}))),
+        None => Ok(Json(json!({"done": true}))),
+    }
+}
+
+// ─────────────────── lms: sessions ──────────────────
+
+#[derive(Deserialize)]
+struct StartSession {
+    goal_id: Option<String>,
+    pathway_id: Option<String>,
+}
+
+async fn session_start(
+    State(s): State<AppState>,
+    Json(body): Json<StartSession>,
+) -> Result<(StatusCode, Json<Session>), ApiError> {
+    let db = s.db.lock().unwrap();
+    let sess = repo::start_session(&db, body.goal_id.as_deref(), body.pathway_id.as_deref())?;
+    Ok((StatusCode::CREATED, Json(sess)))
 }
