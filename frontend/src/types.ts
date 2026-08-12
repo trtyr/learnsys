@@ -56,3 +56,11 @@ export interface ModuleMastery {
   module_id: string; total_cards: number; learned: number;
   avg_ef: number; due_count: number;
 }
+export interface Resource {
+  id: string; title: string; url: string; notes: string;
+  module_id: string | null; card_id: string | null; created: string;
+}
+export interface HeatmapDay { date: string; count: number }
+export interface GoalProgress {
+  goal_id: string; total_modules: number; mastered: number; percent: number;
+}

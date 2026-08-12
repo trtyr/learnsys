@@ -120,6 +120,20 @@ CREATE TABLE IF NOT EXISTS learner_profile (
 PRAGMA user_version = 2;
 "#;
 
+pub const EXTRA_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS resources (
+    id        TEXT PRIMARY KEY,
+    title     TEXT NOT NULL,
+    url       TEXT NOT NULL DEFAULT '',
+    notes     TEXT NOT NULL DEFAULT '',
+    module_id TEXT REFERENCES modules(id) ON DELETE CASCADE,
+    card_id   TEXT REFERENCES cards(id) ON DELETE CASCADE,
+    created   TEXT NOT NULL DEFAULT (date('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_resources_module ON resources(module_id);
+CREATE INDEX IF NOT EXISTS idx_resources_card ON resources(card_id);
+"#;
+
 /// 在给定连接上初始化 schema（幂等，可重复调用）。
 ///
 /// 新库直接建全表；旧 v1 库通过 [`ensure_column`] 补 cards.module_id。
@@ -127,6 +141,7 @@ pub fn init(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute_batch(SCHEMA_SQL)?;
     ensure_column(conn, "cards", "module_id", "TEXT")?;
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_cards_module ON cards(module_id)")?;
+    conn.execute_batch(EXTRA_SQL)?;
     Ok(())
 }
 

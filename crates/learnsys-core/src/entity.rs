@@ -286,6 +286,28 @@ pub struct Session {
     pub reviewed: i64,
 }
 
+// ──────────────────── Resource ─────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Resource {
+    pub id: String,
+    pub title: String,
+    pub url: String,
+    pub notes: String,
+    pub module_id: Option<String>,
+    pub card_id: Option<String>,
+    pub created: NaiveDate,
+}
+impl Resource {
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            id: gen_id(), title: title.into(), url: String::new(),
+            notes: String::new(), module_id: None, card_id: None,
+            created: Utc::now().date_naive(),
+        }
+    }
+}
+
 // ──────────────────── LearnerProfile ─────────────────────
 
 /// AI 温和记忆（单例，id=1）。半结构化：固定字段 + 自由 notes。

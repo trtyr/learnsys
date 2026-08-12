@@ -1,4 +1,4 @@
-import type { Card, Goal, LearnerProfile, Module, ModuleMastery, Pathway, PathwayModule, Session, Topic } from './types'
+import type { Card, Goal, GoalProgress, HeatmapDay, LearnerProfile, Module, ModuleMastery, Pathway, PathwayModule, Resource, Session, Topic } from './types'
 
 const BASE = '/api'
 
@@ -30,15 +30,17 @@ export const api = {
   cards: {
     due: (topic?: string) => get<Card[]>(`/cards/due${topic ? `?topic=${encodeURIComponent(topic)}` : ''}`),
     list: (topic?: string) => get<Card[]>(`/cards${topic ? `?topic=${encodeURIComponent(topic)}` : ''}`),
+    get: (id: string) => get<Card>(`/cards/${id}`),
+    review: (id: string, quality: number) => post<Card>(`/cards/${id}/review`, { quality }),
   },
   topics: { list: () => get<Topic[]>('/topics') },
-  stats: () => get<import('./types').Stats>('/stats'),
   dashboard: () => get<import('./types').Dashboard>('/dashboard'),
 
   goals: {
     list: () => get<Goal[]>('/goals'),
     create: (body: { title: string; description?: string; success_criteria?: string; topic?: string }) =>
       post<Goal>('/goals', body),
+    progress: (id: string) => get<GoalProgress>(`/goals/${id}/progress`),
   },
   pathways: {
     listByGoal: (goalId: string) => get<Pathway[]>(`/pathways?goal=${encodeURIComponent(goalId)}`),
@@ -54,6 +56,14 @@ export const api = {
     list: (topic?: string) => get<Module[]>(`/modules${topic ? `?topic=${encodeURIComponent(topic)}` : ''}`),
     create: (body: { title: string; topic?: string; description?: string }) => post<Module>('/modules', body),
     mastery: (id: string) => get<ModuleMastery>(`/modules/${id}/mastery`),
+    updateStatus: (id: string, status: string) => put<void>(`/modules/${id}/status`, { status }),
+  },
+  resources: {
+    list: (moduleId?: string) => get<Resource[]>(`/resources${moduleId ? `?module_id=${encodeURIComponent(moduleId)}` : ''}`),
+    create: (body: { title: string; url?: string; notes?: string; module_id?: string }) => post<Resource>('/resources', body),
+  },
+  stats: {
+    heatmap: (days?: number) => get<HeatmapDay[]>(`/stats/heatmap${days ? `?days=${days}` : ''}`),
   },
   sessions: {
     start: (body?: { goal_id?: string; pathway_id?: string }) => post<Session>('/sessions/start', body || {}),

@@ -6,7 +6,7 @@
 use chrono::{DateTime, NaiveDate, Utc};
 use rusqlite::{params, Connection, Row};
 
-use crate::entity::{Card, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway, PathwayModule, ReviewLog, Session, Topic, TopicStatus};
+use crate::entity::{Card, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway, PathwayModule, Resource, ReviewLog, Session, Topic, TopicStatus};
 use crate::sm2;
 
 #[derive(Debug, thiserror::Error)]
@@ -605,6 +605,89 @@ pub fn module_mastery(conn: &Connection, module_id: &str) -> Result<ModuleMaster
         learned,
         avg_ef,
         due_count: due,
+    })
+}
+
+pub fn update_module_status(conn: &Connection, id: &str, status: ModuleStatus) -> Result<()> {
+    let n = conn.execute("UPDATE modules SET status=? WHERE id=?", params![status.as_str(), id])?;
+    if n == 0 { return Err(RepoError::NotFound(format!("module {id}"))); }
+    Ok(())
+}
+
+// ──────────────── resources ────────────────
+
+fn resource_from_row(r: &Row) -> rusqlite::Result<Resource> {
+    let created: String = r.get("created")?;
+    Ok(Resource {
+        id: r.get("id")?, title: r.get("title")?, url: r.get("url")?,
+        notes: r.get("notes")?, module_id: r.get("module_id")?,
+        card_id: r.get("card_id")?, created: conv(parse_date(&created))?,
+    })
+}
+
+pub fn insert_resource(conn: &Connection, r: &Resource) -> Result<()> {
+    conn.execute(
+        "INSERT OR REPLACE INTO resources (id,title,url,notes,module_id,card_id,created) VALUES (?,?,?,?,?,?,?)",
+        params![r.id, r.title, r.url, r.notes, r.module_id, r.card_id, to_date_str(r.created)],
+    )?;
+    Ok(())
+}
+
+pub fn list_resources(conn: &Connection, module_id: Option<&str>, card_id: Option<&str>) -> Result<Vec<Resource>> {
+    let (sql, param) = if let Some(mid) = module_id {
+        ("SELECT * FROM resources WHERE module_id=? ORDER BY created", Some(mid.to_string()))
+    } else if let Some(cid) = card_id {
+        ("SELECT * FROM resources WHERE card_id=? ORDER BY created", Some(cid.to_string()))
+    } else {
+        ("SELECT * FROM resources ORDER BY created DESC LIMIT 50", None)
+    };
+    let mut stmt = conn.prepare(sql)?;
+    let rows = match &param { Some(p) => stmt.query_map(params![p.as_str()], resource_from_row)?, None => stmt.query_map([], resource_from_row)? };
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+// ──────────────── heatmap ────────────────
+
+#[derive(Debug, serde::Serialize)]
+pub struct HeatmapDay {
+    pub date: String,
+    pub count: i64,
+}
+
+pub fn heatmap(conn: &Connection, days: i64) -> Result<Vec<HeatmapDay>> {
+    let since = to_date_str(Utc::now().date_naive() - chrono::Duration::days(days));
+    let mut stmt = conn.prepare(
+        "SELECT substr(reviewed_at,1,10) as d, count(*) FROM review_logs WHERE d >= ? GROUP BY d ORDER BY d"
+    )?;
+    let rows = stmt.query_map(params![since], |r| Ok(HeatmapDay { date: r.get(0)?, count: r.get(1)? }))?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+// ──────────────── goal progress ────────────────
+
+#[derive(Debug, serde::Serialize)]
+pub struct GoalProgress {
+    pub goal_id: String,
+    pub total_modules: usize,
+    pub mastered: usize,
+    pub percent: f64,
+}
+
+pub fn goal_progress(conn: &Connection, goal_id: &str) -> Result<GoalProgress> {
+    let pws = list_pathways_by_goal(conn, goal_id)?;
+    let mut mids = std::collections::HashSet::new();
+    for pw in &pws {
+        for pm in &list_pathway_modules(conn, &pw.id)? {
+            mids.insert(pm.module_id.clone());
+        }
+    }
+    let total = mids.len();
+    let mastered = mids.iter().filter(|mid| {
+        get_module(conn, mid).map(|m| matches!(m.status, ModuleStatus::Mastered)).unwrap_or(false)
+    }).count();
+    Ok(GoalProgress {
+        goal_id: goal_id.to_string(), total_modules: total, mastered,
+        percent: if total > 0 { (mastered as f64) / (total as f64) * 100.0 } else { 0.0 },
     })
 }
 

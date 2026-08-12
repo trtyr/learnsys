@@ -1,24 +1,22 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { api } from './api'
-import type { Card, Dashboard, Goal, LearnerProfile, Module, Pathway, PathwayModule, Session } from './types'
+import type { Card, Dashboard, Goal, GoalProgress, HeatmapDay, LearnerProfile, Module, ModuleMastery, Pathway, PathwayModule, Resource, Session } from './types'
 
 type Tab = 'plan' | 'review' | 'progress' | 'profile'
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('plan')
+  const [tab, setTab] = useState<Tab>('review')
   const [dash, setDash] = useState<Dashboard | null>(null)
   const [profile, setProfile] = useState<LearnerProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
 
   const reload = useCallback(() => {
-    setLoading(true)
     Promise.all([api.dashboard(), api.profile.get()])
       .then(([d, p]) => { setDash(d); setProfile(p) })
       .catch((e) => setErr(String(e)))
       .finally(() => setLoading(false))
   }, [])
-
   useEffect(reload, [reload])
 
   if (err) return <Shell><div className="error">加载失败: {err}</div></Shell>
@@ -47,14 +45,12 @@ export default function App() {
 
       <main>
         {tab === 'plan' && <PlanView onRefresh={reload} />}
-        {tab === 'review' && <ReviewView dash={dash} />}
+        {tab === 'review' && <ReviewView dash={dash} onRefresh={reload} />}
         {tab === 'progress' && <ProgressView dash={dash} />}
         {tab === 'profile' && <ProfileView profile={profile} onRefresh={reload} />}
       </main>
 
-      <footer className="footer">
-        知识出发板 · AI 调 API 操作，平台负责记录与调度 · today {today}
-      </footer>
+      <footer className="footer">知识出发板 · AI 调 API 操作 · today {today}</footer>
     </Shell>
   )
 }
@@ -63,14 +59,20 @@ function Shell({ children }: { children: ReactNode }) {
   return <div className="wrap">{children}</div>
 }
 
-// ═════════════════ PlanView ═════════════════
+// ═════════════════ PlanView — 目标进度 + 路径模块 ═════════════════
 
 function PlanView({ onRefresh }: { onRefresh: () => void }) {
   const [goals, setGoals] = useState<Goal[]>([])
-  const [expand, setExpand] = useState<string | null>(null)
+  const [progress, setProgress] = useState<Record<string, GoalProgress>>({})
   const [newTitle, setNewTitle] = useState('')
   const [method, setMethod] = useState('基础优先')
-  const load = useCallback(() => { api.goals.list().then(setGoals) }, [])
+
+  const load = useCallback(() => {
+    api.goals.list().then((gs) => {
+      setGoals(gs)
+      gs.forEach((g) => api.goals.progress(g.id).then((p) => setProgress((x) => ({ ...x, [g.id]: p }))).catch(() => {}))
+    })
+  }, [])
   useEffect(load, [load])
 
   return (
@@ -87,113 +89,182 @@ function PlanView({ onRefresh }: { onRefresh: () => void }) {
           setNewTitle(''); load(); onRefresh()
         }}>+ 目标</button>
       </div>
+
       {goals.length === 0 && <div className="loading">还没有学习目标——建一个吧。</div>}
-      {goals.map((g) => (
-        <div key={g.id} className="panel">
-          <div className="goal-row" onClick={() => setExpand(expand === g.id ? null : g.id)}>
-            <span className="tag" style={{ background: g.status === 'active' ? 'rgba(245,166,35,.15)' : g.status === 'achieved' ? 'rgba(90,158,111,.15)' : 'rgba(102,102,102,.15)', color: g.status === 'active' ? 'var(--amber)' : g.status === 'achieved' ? 'var(--green)' : 'var(--muted)' }}>{g.status}</span>
-            <b>{g.title}</b>
-            {g.success_criteria && <span className="muted">— {g.success_criteria}</span>}
-            <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-flap)', color: 'var(--muted)' }}>{expand === g.id ? '▾' : '▸'}</span>
-          </div>
-          {expand === g.id && <GoalDetail gid={g.id} onRefresh={onRefresh} />}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function GoalDetail({ gid, onRefresh }: { gid: string; onRefresh: () => void }) {
-  const [pws, setPws] = useState<Pathway[]>([])
-  const [sel, setSel] = useState<string | null>(null)
-  const [allMods, setAllMods] = useState<Module[]>([])
-  const [mods, setMods] = useState<Record<string, { pms: PathwayModule[]; next: { done?: boolean; module?: Module; position?: number; total?: number } | null }>>({})
-  const [title, setTitle] = useState('')
-  const [order, setOrder] = useState(1)
-
-  useEffect(() => {
-    api.pathways.listByGoal(gid).then(setPws)
-    api.modules.list().then(setAllMods)
-  }, [gid])
-
-  return (
-    <div className="panel-body" style={{ borderTop: '1px solid var(--border)' }}>
-      {pws.map((pw) => {
-        const d = mods[pw.id] || { pms: [], next: null }
+      {goals.map((g) => {
+        const p = progress[g.id]
         return (
-          <div key={pw.id}>
-            <div className="pathway-row" onClick={() => {
-              if (sel === pw.id) { setSel(null); return }
-              setSel(pw.id)
-              if (!mods[pw.id]) {
-                api.pathways.modules(pw.id).then((pms) => {
-                  api.pathways.next(pw.id).then((n) => setMods((m) => ({ ...m, [pw.id]: { pms, next: n } }))).catch(() => {})
-                })
-              }
-            }}>
-              <span className="tag" style={{ background: 'rgba(192,192,192,.12)', color: 'var(--accent)' }}>{pw.methodology || '路径'}</span>
-              <b>{pw.name}</b>
-              <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-flap)', color: 'var(--muted)' }}>{sel === pw.id ? '▾' : '▸'}</span>
-            </div>
-            {sel === pw.id && (
-              <div>
-                {d.pms.length === 0 && <div className="muted" style={{ padding: '8px 0', fontSize: 12 }}>还没模块。</div>}
-                {d.pms.map((pm, i) => {
-                  const mod = allMods.find((m) => m.id === pm.module_id)
-                  return (
-                    <div key={pm.module_id} className="module-row">
-                      <span className="idx">{i + 1}</span>
-                      <span className="title">{mod?.title || pm.module_id.slice(0, 12)}</span>
-                      <span className="tag" style={{
-                        background: mod?.status === 'mastered' ? 'rgba(90,158,111,.15)' : mod?.status === 'learning' ? 'rgba(245,166,35,.15)' : 'rgba(102,102,102,.1)',
-                        color: mod?.status === 'mastered' ? 'var(--green)' : mod?.status === 'learning' ? 'var(--amber)' : 'var(--muted)'
-                      }}>{mod?.status || '?'}</span>
-                      {pm.depends_on.length > 0 && (
-                        <span className="depends">◂ {pm.depends_on.map((did) => allMods.find((m) => m.id === did)?.title || did.slice(0, 8)).join(' · ')}</span>
-                      )}
-                    </div>
-                  )
-                })}
-                {d.next?.done && <div style={{ padding: '8px 0 8px 24px', color: 'var(--green)', fontFamily: 'var(--font-flap)', fontSize: 12 }}>◆ 全线完成</div>}
-                {d.next?.module && !d.next.done && (
-                  <div style={{ padding: '8px 0 8px 24px', color: 'var(--amber)', fontFamily: 'var(--font-flap)', fontSize: 12 }}>▶ 下一站: {d.next.module.title} ({d.next.position}/{d.next.total})</div>
-                )}
-                <div className="form-row" style={{ marginTop: 8, marginLeft: 24 }}>
-                  <input placeholder="模块名" value={title} onChange={(e) => setTitle(e.target.value)} style={{ flex: 2 }} />
-                  <input placeholder="#" value={order} type="number" style={{ width: 56 }} onChange={(e) => setOrder(Number(e.target.value))} />
-                  <button onClick={async () => {
-                    if (!title) return
-                    const m = await api.modules.create({ title })
-                    await api.pathways.addModule(pw.id, { module_id: m.id, sort_order: order })
-                    setTitle(''); setOrder(order + 1); onRefresh()
-                    api.pathways.modules(pw.id).then(async (pms) => {
-                      const n = await api.pathways.next(pw.id).catch(() => null)
-                      setMods((x) => ({ ...x, [pw.id]: { pms, next: n } }))
-                    })
-                    api.modules.list().then(setAllMods)
-                  }}>+ 模块</button>
-                </div>
-              </div>
-            )}
+          <div key={g.id} className="panel">
+            <GoalRow goal={g} progress={p} onRefresh={() => { load(); onRefresh() }} />
           </div>
         )
       })}
-      <button onClick={async () => {
-        await api.pathways.create({ name: '新路径', goal_id: gid })
-        api.pathways.listByGoal(gid).then(setPws); onRefresh()
-      }} style={{
-        marginTop: 8, padding: '6px 14px', background: 'var(--border)', border: '1px solid var(--border-light)',
-        color: 'var(--text)', fontFamily: 'var(--font-flap)', fontSize: 12, letterSpacing: '.05em', textTransform: 'uppercase', cursor: 'pointer'
-      }}>+ 新路径</button>
     </div>
   )
 }
 
-// ═══════════════ ReviewView — THE departure board ═══════════════
+function GoalRow({ goal, progress, onRefresh }: { goal: Goal; progress?: GoalProgress; onRefresh: () => void }) {
+  const [expand, setExpand] = useState(false)
+  const [pws, setPws] = useState<Pathway[]>([])
 
-function ReviewView({ dash }: { dash: Dashboard }) {
+  useEffect(() => {
+    if (expand) api.pathways.listByGoal(goal.id).then(setPws)
+  }, [expand, goal.id])
+
+  const pct = progress?.percent ?? 0
+
+  return (
+    <div>
+      <div className="goal-row" onClick={() => setExpand(!expand)}>
+        <span className={`tag ${goal.status === 'achieved' ? 'green' : goal.status === 'abandoned' ? 'muted' : 'amber'}`}>{goal.status}</span>
+        <b>{goal.title}</b>
+        {goal.success_criteria && <span className="muted">— {goal.success_criteria}</span>}
+        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-flap)', color: 'var(--muted)' }}>{expand ? '▾' : '▸'}</span>
+      </div>
+      {progress && progress.total_modules > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 0 8px', fontFamily: 'var(--font-flap)', fontSize: 11, color: 'var(--muted)' }}>
+          <div style={{ flex: 1, background: '#1a1a1a', height: 6, borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{ width: `${pct}%`, height: '100%', background: 'var(--amber)', borderRadius: 3, transition: 'width .4s' }} />
+          </div>
+          <span>{progress.mastered}/{progress.total_modules} · {pct.toFixed(0)}%</span>
+        </div>
+      )}
+      {expand && (
+        <div className="panel-body" style={{ borderTop: '1px solid var(--border)' }}>
+          {pws.length === 0 && <div className="muted" style={{ fontSize: 12 }}>还没路径。</div>}
+          {pws.map((pw) => <PathwayRow key={pw.id} pw={pw} onRefresh={onRefresh} />)}
+          <button className="ghost-btn" onClick={async () => {
+            await api.pathways.create({ name: '新路径', goal_id: goal.id })
+            api.pathways.listByGoal(goal.id).then(setPws); onRefresh()
+          }}>+ 新路径</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PathwayRow({ pw, onRefresh }: { pw: Pathway; onRefresh: () => void }) {
+  const [expand, setExpand] = useState(false)
+  const [pms, setPms] = useState<PathwayModule[]>([])
+  const [allMods, setAllMods] = useState<Module[]>([])
+  const [next, setNext] = useState<{ done?: boolean; module?: Module; position?: number; total?: number } | null>(null)
+  const [title, setTitle] = useState('')
+  const [order, setOrder] = useState(1)
+
+  const loadDetail = useCallback(() => {
+    api.pathways.modules(pw.id).then(setPms)
+    api.pathways.next(pw.id).then(setNext).catch(() => {})
+    api.modules.list().then(setAllMods)
+  }, [pw.id])
+
+  useEffect(() => { if (expand) loadDetail() }, [expand, loadDetail])
+
+  return (
+    <div>
+      <div className="pathway-row" onClick={() => setExpand(!expand)}>
+        <span className="tag" style={{ background: 'rgba(192,192,192,.12)', color: 'var(--accent)' }}>{pw.methodology || '路径'}</span>
+        <b>{pw.name}</b>
+        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-flap)', color: 'var(--muted)' }}>{expand ? '▾' : '▸'}</span>
+      </div>
+      {expand && (
+        <div>
+          {pms.map((pm, i) => <ModuleRow key={pm.module_id} pm={pm} idx={i} modules={allMods} onRefresh={() => { loadDetail(); onRefresh() }} />)}
+          {next?.done && <div style={{ padding: '6px 0 6px 24px', color: 'var(--green)', fontFamily: 'var(--font-flap)', fontSize: 12 }}>◆ 全线完成</div>}
+          {next?.module && !next.done && (
+            <div style={{ padding: '6px 0 6px 24px', color: 'var(--amber)', fontFamily: 'var(--font-flap)', fontSize: 12 }}>▶ 下一站: {next.module.title} ({next.position}/{next.total})</div>
+          )}
+          <div className="form-row" style={{ marginTop: 8, marginLeft: 24 }}>
+            <input placeholder="模块名" value={title} onChange={(e) => setTitle(e.target.value)} style={{ flex: 2 }} />
+            <input placeholder="#" value={order} type="number" style={{ width: 56 }} onChange={(e) => setOrder(Number(e.target.value))} />
+            <button onClick={async () => {
+              if (!title) return
+              const m = await api.modules.create({ title })
+              await api.pathways.addModule(pw.id, { module_id: m.id, sort_order: order })
+              setTitle(''); setOrder(order + 1); loadDetail(); onRefresh()
+            }}>+ 模块</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ModuleRow({ pm, idx, modules, onRefresh }: { pm: PathwayModule; idx: number; modules: Module[]; onRefresh: () => void }) {
+  const [expand, setExpand] = useState(false)
+  const mod = modules.find((m) => m.id === pm.module_id)
+  const [mastery, setMastery] = useState<ModuleMastery | null>(null)
+  const [resources, setResources] = useState<Resource[]>([])
+  const [resTitle, setResTitle] = useState('')
+  const [resUrl, setResUrl] = useState('')
+
+  useEffect(() => {
+    if (expand && mod) {
+      api.modules.mastery(mod.id).then(setMastery)
+      api.resources.list(mod.id).then(setResources)
+    }
+  }, [expand, mod?.id])
+
+  const cycleStatus = async () => {
+    if (!mod) return
+    const next = mod.status === 'mastered' ? 'learning' : mod.status === 'learning' ? 'not_started' : 'mastered'
+    await api.modules.updateStatus(mod.id, next)
+    onRefresh()
+  }
+
+  return (
+    <div>
+      <div className="module-row">
+        <span className="idx">{idx + 1}</span>
+        <span className="title" style={{ cursor: 'pointer' }} onClick={() => setExpand(!expand)}>
+          {mod?.title || pm.module_id.slice(0, 12)} {expand ? '▾' : '▸'}
+        </span>
+        {mod && (
+          <span className="tag" onClick={cycleStatus} style={{
+            cursor: 'pointer',
+            background: mod.status === 'mastered' ? 'rgba(90,158,111,.15)' : mod.status === 'learning' ? 'rgba(245,166,35,.15)' : 'rgba(102,102,102,.1)',
+            color: mod.status === 'mastered' ? 'var(--green)' : mod.status === 'learning' ? 'var(--amber)' : 'var(--muted)'
+          }}>{mod.status}</span>
+        )}
+        {pm.depends_on.length > 0 && (
+          <span className="depends">◂ {pm.depends_on.map((did) => modules.find((m) => m.id === did)?.title || did.slice(0, 8)).join(' · ')}</span>
+        )}
+      </div>
+      {expand && mod && (
+        <div style={{ padding: '4px 0 12px 48px', borderLeft: '1px solid var(--border)', marginLeft: 12 }}>
+          {mastery && (
+            <div style={{ fontFamily: 'var(--font-flap)', fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+              卡片 {mastery.total_cards} · 已学 {mastery.learned} · 平均 EF {mastery.avg_ef.toFixed(2)} · 待复习 {mastery.due_count}
+            </div>
+          )}
+          {resources.map((r) => (
+            <div key={r.id} style={{ fontFamily: 'var(--font-flap)', fontSize: 12, padding: '2px 0' }}>
+              {r.url ? <a href={r.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{r.title}</a> : <span>{r.title}</span>}
+              {r.notes && <span className="muted"> — {r.notes}</span>}
+            </div>
+          ))}
+          <div className="form-row" style={{ marginTop: 6 }}>
+            <input placeholder="资源名" value={resTitle} onChange={(e) => setResTitle(e.target.value)} />
+            <input placeholder="URL" value={resUrl} onChange={(e) => setResUrl(e.target.value)} />
+            <button onClick={async () => {
+              if (!resTitle) return
+              await api.resources.create({ title: resTitle, url: resUrl, module_id: mod.id })
+              setResTitle(''); setResUrl('')
+              api.resources.list(mod.id).then(setResources)
+            }}>+ 资源</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ═══════════════ ReviewView — 翻卡复习 ═══════════════
+
+function ReviewView({ dash, onRefresh }: { dash: Dashboard; onRefresh: () => void }) {
   const [due, setDue] = useState<Card[]>([])
-  useEffect(() => { api.cards.due().then(setDue) }, [])
+  const [flipped, setFlipped] = useState<string | null>(null)
+  const load = useCallback(() => api.cards.due().then(setDue), [])
+  useEffect(load, [load])
   const today = new Date().toISOString().slice(0, 10)
 
   return (
@@ -211,36 +282,41 @@ function ReviewView({ dash }: { dash: Dashboard }) {
           {due.length === 0 ? (
             <div className="loading">◆ 今日无出发——全线清空。</div>
           ) : (
-            <table className="board">
-              <thead>
-                <tr>
-                  <th>到期</th><th>班次 / 标题</th><th>状态</th><th>领域</th><th>EF</th>
-                </tr>
-              </thead>
-              <tbody>
-                {due.map((c) => {
-                  const days = Math.floor((Date.parse(today) - Date.parse(c.due)) / 86400000)
-                  const cls = days > 1 ? 'extreme' : days > 0 ? 'overdue' : 'on-time'
-                  const status = days > 1 ? `延误 ${days}天` : days > 0 ? '已延误' : '准时'
-                  const tagCls = days > 1 ? 'red' : days > 0 ? 'amber' : 'green'
-                  return (
-                    <tr key={c.id} className={cls}>
-                      <td className="cell-due">{c.due.slice(5)}</td>
-                      <td className="cell-module">{c.front}</td>
-                      <td className="cell-status"><span className={`tag ${tagCls}`}>{status}</span></td>
-                      <td className="cell-topic"><span className="tag muted">{c.topic}</span></td>
-                      <td className="cell-topic muted" style={{ fontSize: 12 }}>{c.ef.toFixed(1)}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+            <div className="board-list">
+              {due.map((c) => {
+                const days = Math.floor((Date.parse(today) - Date.parse(c.due)) / 86400000)
+                const cls = days > 1 ? 'extreme' : days > 0 ? 'overdue' : 'on-time'
+                const status = days > 1 ? `延误 ${days}天` : days > 0 ? '已延误' : '准时'
+                const tagCls = days > 1 ? 'red' : days > 0 ? 'amber' : 'green'
+                return (
+                  <div key={c.id} className={`flap-row ${cls}`} onClick={() => setFlipped(flipped === c.id ? null : c.id)}>
+                    <div className="flap-due">{c.due.slice(5)}</div>
+                    <div className="flap-main">
+                      <div className="flap-front">{flipped === c.id ? c.back : c.front}</div>
+                      {flipped === c.id && (
+                        <div className="flap-answer-actions" onClick={(e) => e.stopPropagation()}>
+                          <span style={{ fontSize: 11, color: 'var(--muted)' }}>翻面 · 自评质量分：</span>
+                          {[0, 1, 2, 3, 4, 5].map((q) => (
+                            <button key={q} className="rate-btn" onClick={async () => {
+                              await api.cards.review(c.id, q)
+                              setFlipped(null); load(); onRefresh()
+                            }}>{q}</button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flap-status"><span className={`tag ${tagCls}`}>{status}</span></div>
+                    <div className="flap-meta"><span className="tag muted">{c.topic}</span></div>
+                  </div>
+                )
+              })}
+            </div>
           )}
         </div>
         <div className="status-bar" style={{ padding: '8px 16px' }}>
           <span>已出发 <b>{dash.stats.total_cards - dash.due_today}</b></span>
           <span>待出发 <b className="warn">{dash.due_today}</b></span>
-          {dash.due_soon > 0 && <span>延误预警 <b className="hot">{dash.due_soon}</b></span>}
+          <span className="muted">点卡片翻面 · 打分后自动调度</span>
         </div>
       </div>
     </div>
@@ -256,24 +332,52 @@ function Stat({ label, value, accent }: { label: string; value: ReactNode; accen
   )
 }
 
-// ═══════════════ ProgressView ═══════════════
+// ═══════════════ ProgressView — 热力图 + 分布 + 会话 ═══════════════
 
 function ProgressView({ dash }: { dash: Dashboard }) {
   const [sessions, setSessions] = useState<Session[]>([])
-  useEffect(() => { api.sessions.list(10).then(setSessions) }, [])
+  const [heat, setHeat] = useState<HeatmapDay[]>([])
+  useEffect(() => { api.sessions.list(10).then(setSessions); api.stats.heatmap(84).then(setHeat) }, [])
   const maxCount = Math.max(...dash.stats.by_topic.map((x) => x.count), 1)
+  const maxHeat = Math.max(...heat.map((h) => h.count), 1)
+  const heatMap = new Map(heat.map((h) => [h.date, h.count]))
+
+  // 生成最近 12 周的日历格子
+  const cells: { date: string; count: number; inFuture: boolean }[] = []
+  const today = new Date()
+  for (let i = 83; i >= 0; i--) {
+    const d = new Date(today); d.setDate(d.getDate() - i)
+    const iso = d.toISOString().slice(0, 10)
+    cells.push({ date: iso, count: heatMap.get(iso) || 0, inFuture: i < 0 })
+  }
+
+  const level = (c: number) => c === 0 ? 0 : c === 1 ? 1 : c <= 3 ? 2 : c <= 6 ? 3 : 4
 
   return (
     <div>
+      <div className="panel">
+        <div className="panel-header">复习热力 · 最近 12 周</div>
+        <div className="panel-body">
+          <div className="heatmap">
+            {cells.map((c) => (
+              <div key={c.date} className={`heat-cell lvl-${level(c.count)}`} title={`${c.date} · ${c.count} 次复习`} />
+            ))}
+          </div>
+          <div style={{ fontFamily: 'var(--font-flap)', fontSize: 11, color: 'var(--muted)', marginTop: 8, display: 'flex', gap: 4, alignItems: 'center' }}>
+            少 <span className="heat-cell lvl-0" style={{ display: 'inline-block' }} /><span className="heat-cell lvl-1" style={{ display: 'inline-block' }} /><span className="heat-cell lvl-2" style={{ display: 'inline-block' }} /><span className="heat-cell lvl-3" style={{ display: 'inline-block' }} /><span className="heat-cell lvl-4" style={{ display: 'inline-block' }} /> 多
+          </div>
+        </div>
+      </div>
+
       <div className="panel">
         <div className="panel-header">领域分布</div>
         <div className="panel-body">
           <div style={{ display: 'grid', gap: 6 }}>
             {dash.stats.by_topic.map((b) => (
               <div key={b.topic} style={{ display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'var(--font-flap)', fontSize: 12 }}>
-                <span style={{ width: 70, color: 'var(--text)' }}>{b.topic}</span>
+                <span style={{ width: 70 }}>{b.topic}</span>
                 <div style={{ flex: 1, background: '#1a1a1a', height: 14, borderRadius: 2, overflow: 'hidden' }}>
-                  <div style={{ width: `${(b.count / maxCount) * 100}%`, height: '100%', background: 'var(--amber)', borderRadius: 2, transition: 'width .4s' }} />
+                  <div style={{ width: `${(b.count / maxCount) * 100}%`, height: '100%', background: 'var(--amber)', borderRadius: 2 }} />
                 </div>
                 <span className="muted">{b.count}</span>
               </div>
@@ -281,6 +385,7 @@ function ProgressView({ dash }: { dash: Dashboard }) {
           </div>
         </div>
       </div>
+
       <div className="panel">
         <div className="panel-header">最近班次日志</div>
         <div className="panel-body" style={{ padding: 0 }}>

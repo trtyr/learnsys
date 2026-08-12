@@ -22,7 +22,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tower_http::cors::CorsLayer;
 
-use learnsys_core::entity::{Card, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway, PathwayModule, Session, Topic, TopicStatus};
+use learnsys_core::entity::{Card, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway, PathwayModule, Resource, Session, Topic, TopicStatus};
 use learnsys_core::repo::{self, RepoError};
 
 #[derive(Clone)]
@@ -65,6 +65,10 @@ async fn main() {
         .route("/api/sessions/:id/end", post(session_end))
         .route("/api/sessions", get(list_sessions))
         .route("/api/modules/:id/mastery", get(module_mastery))
+        .route("/api/modules/:id/status", put(update_module_status))
+        .route("/api/resources", post(create_resource).get(list_resources))
+        .route("/api/stats/heatmap", get(heatmap))
+        .route("/api/goals/:id/progress", get(goal_progress))
         .route("/api/profile", get(get_profile).put(upsert_profile))
         .layer(CorsLayer::permissive())
         .with_state(state);
@@ -528,6 +532,83 @@ async fn module_mastery(
 ) -> Result<Json<repo::ModuleMastery>, ApiError> {
     let db = s.db.lock().unwrap();
     Ok(Json(repo::module_mastery(&db, &id)?))
+}
+
+#[derive(Deserialize)]
+struct UpdateModuleStatus {
+    status: String,
+}
+
+async fn update_module_status(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateModuleStatus>,
+) -> Result<StatusCode, ApiError> {
+    let db = s.db.lock().unwrap();
+    repo::update_module_status(&db, &id, ModuleStatus::parse(&body.status))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ─────────────── resources ───────────────
+
+#[derive(Deserialize)]
+struct CreateResource {
+    title: String,
+    url: Option<String>,
+    notes: Option<String>,
+    module_id: Option<String>,
+    card_id: Option<String>,
+}
+
+async fn create_resource(
+    State(s): State<AppState>,
+    Json(body): Json<CreateResource>,
+) -> Result<(StatusCode, Json<Resource>), ApiError> {
+    let db = s.db.lock().unwrap();
+    let mut r = Resource::new(body.title);
+    r.url = body.url.unwrap_or_default();
+    r.notes = body.notes.unwrap_or_default();
+    r.module_id = body.module_id;
+    r.card_id = body.card_id;
+    repo::insert_resource(&db, &r)?;
+    Ok((StatusCode::CREATED, Json(r)))
+}
+
+#[derive(Deserialize)]
+struct ResourceQuery {
+    module_id: Option<String>,
+    card_id: Option<String>,
+}
+
+async fn list_resources(
+    State(s): State<AppState>,
+    Query(q): Query<ResourceQuery>,
+) -> Result<Json<Vec<Resource>>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::list_resources(&db, q.module_id.as_deref(), q.card_id.as_deref())?))
+}
+
+// ─────────────── heatmap + goal progress ───────────────
+
+#[derive(Deserialize)]
+struct HeatmapQuery {
+    days: Option<i64>,
+}
+
+async fn heatmap(
+    State(s): State<AppState>,
+    Query(q): Query<HeatmapQuery>,
+) -> Result<Json<Vec<repo::HeatmapDay>>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::heatmap(&db, q.days.unwrap_or(90))?))
+}
+
+async fn goal_progress(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<repo::GoalProgress>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::goal_progress(&db, &id)?))
 }
 
 // ─────────────────── profile ───────────────────
