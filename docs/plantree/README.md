@@ -13,7 +13,7 @@
 
 | Plan | Status | Current Phase | Last Landed | Next Target |
 |------|--------|---------------|-------------|-------------|
-| [core](plans/core/README.md) | 🟡 Ready | Phase 0：脚手架 + 数据模型 | — | 进 Phase 0 |
+| [core](plans/core/README.md) | 🟢 Done (MVP) | Phase 0–3 已交付 | commit 784f13d + 前端 | Phase 4 接入验证 |
 
 ## 怎么读这棵树
 
@@ -28,6 +28,6 @@
 
 ## 当前模式
 
-`ready-check → execute-ready`：MVP 大决策已收敛（项目名 recall / REST / SQLite / React+Vite / 只读看板），
-见 [decisions/002-mvp-decisions.md](plans/core/decisions/002-mvp-decisions.md)。
-下一步进 Phase 0（搭 Rust workspace + schema），实现选型细节见 open-questions。
+`execute-ready`：MVP（Phase 0–3）已交付并通过 e2e（测试 + 迁移 + 全 API 端点 + 前端 dist）。
+见 [decisions/003-mvp-shipped.md](plans/core/decisions/003-mvp-shipped.md)。
+后续 Phase 4（Pi 接入）/ Phase 5（Docker）见 roadmap。

@@ -27,9 +27,9 @@ recall 的唯一计划：把"学习数据平台"从 0 做到单机可用、Docke
 
 ## 当前状态
 
-- **Phase**：Ready → Phase 0（脚手架 + 数据模型）
-- **Next**：进 Phase 0，搭 Rust workspace + SQLite schema + 迁移脚本
-- **决策**：MVP 大决策已收敛 → [decisions/002-mvp-decisions.md](decisions/002-mvp-decisions.md)；实现选型见 [open-questions.md](open-questions.md)
+- **Phase**：🟢 MVP（Phase 0–3）已交付
+- **Next**：Phase 4（Pi 接入验证端到端学习闭环）/ Phase 5（Docker 包装）
+- **实现选型**：axum 0.7 + rusqlite + React18+Vite5（OQ-7/8 已落实，见 [open-questions.md](open-questions.md)）
 
 ## Resume
 

@@ -5,12 +5,15 @@
 - 🟢 架构方向确立：headless 平台 + AI 客户端，关注点分离
 - 🟢 技术栈确立：Rust 后端 / 前后端分离 / 单机 / Docker 最后
 - 🟢 现有资产盘点：Python 版逻辑可继承；20 张 Rust 卡可迁移
+- 🟢 MVP 决策收敛 → [decisions/002-mvp-decisions.md](decisions/002-mvp-decisions.md)
+- 🟢 Phase 0：workspace + 数据模型 + 迁移（20 张卡导入验证）
+- 🟢 Phase 1：SM-2 + 仓储 + cards API（16 单测 + curl add/due/review 闭环）
+- 🟢 Phase 2：topics + stats + dashboard API
+- 🟢 Phase 3：React + Vite 只读看板（dev proxy 打通，dist 产出）
 
 ## In Progress
 
-- 🟢 架构与数据模型定稿：[topics/architecture.md](topics/architecture.md)、[topics/data-model.md](topics/data-model.md)
-- 🟢 MVP 决策收敛：[decisions/002-mvp-decisions.md](decisions/002-mvp-decisions.md)
-- 🔵 进 Phase 0 前：实现选型（框架/驱动）见 [open-questions.md](open-questions.md)
+（无 —— MVP 已交付，见 [decisions/003-mvp-shipped.md](decisions/003-mvp-shipped.md)）
 
 ## Next（按顺序）
 
