@@ -1,4 +1,4 @@
-# Ideas Inbox · recall
+# Ideas Inbox · 学习系统
 
 低承诺想法池。promote 到 roadmap / decision / topic 时再认真对待。
 

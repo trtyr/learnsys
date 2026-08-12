@@ -9,7 +9,7 @@
 
 | 项 | 决定 | 理由 |
 |----|------|------|
-| 项目名 | **recall** | active recall 主动检索，crate/目录名干净 |
+| 项目名 | **学习系统** | active 学习系统 主动检索，crate/目录名干净 |
 | API 形态 | **REST 核心** | 最通用，前端看板/curl/任意 agent 都能调；MCP 留后续适配 |
 | 存储 | **SQLite 主**，markdown 作 import/export | 单机零配置、单文件、强查询；markdown 承接现有数据迁移 |
 | 前端 | **React + Vite** | 生态最大最稳；用户选定 |

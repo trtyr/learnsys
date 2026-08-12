@@ -1,4 +1,4 @@
-# Topic: LMS 数据模型 · recall
+# Topic: LMS 数据模型 · 学习系统
 
 > capsule：LMS 新实体设计。建立在 core（Card/Topic/ReviewLog）之上。
 > 字段草案，schema 在 Phase A 定稿。

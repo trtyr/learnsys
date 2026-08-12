@@ -27,7 +27,7 @@ export default function App() {
   return (
     <Shell>
       <header className="header">
-        <h1>📚 recall <span className="muted">学习管理</span></h1>
+        <h1>📚 学习系统 <span className="muted">学习管理</span></h1>
         <div className="tagline">
           {profile?.level && <span>{profile.level} · </span>}
           {dash.due_today > 0
@@ -52,7 +52,7 @@ export default function App() {
       </main>
 
       <footer className="footer muted">
-        recall · AI 调 API 操作，平台负责记录与调度
+        学习系统 · AI 调 API 操作，平台负责记录与调度
       </footer>
     </Shell>
   )

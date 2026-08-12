@@ -1,4 +1,4 @@
-# Topic: API 契约 · recall
+# Topic: API 契约 · 学习系统
 
 > capsule：REST 端点草案（OQ-2 待确认 REST 为核心）。
 > 细节在 Phase 1 实现时定稿。

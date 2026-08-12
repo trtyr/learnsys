@@ -6,7 +6,7 @@ members = ["crates/*"]
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/trtyr/recall"
+repository = "https://github.com/trtyr/learnsys"
 
 # 共享依赖版本：子 crate 用 `.workspace = true` 继承，避免版本漂移
 [workspace.dependencies]

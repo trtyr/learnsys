@@ -1,4 +1,4 @@
-//! recall-api —— axum 服务入口。
+//! learnsys-api —— axum 服务入口。
 //!
 //! REST API（见 docs/plantree/.../api-contract.md）：
 //!   POST   /api/cards            建卡片（topic 用名，不存在则自动建主题）
@@ -22,8 +22,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tower_http::cors::CorsLayer;
 
-use recall_core::entity::{Card, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway, PathwayModule, Session, Topic, TopicStatus};
-use recall_core::repo::{self, RepoError};
+use learnsys_core::entity::{Card, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway, PathwayModule, Session, Topic, TopicStatus};
+use learnsys_core::repo::{self, RepoError};
 
 #[derive(Clone)]
 struct AppState {
@@ -32,7 +32,7 @@ struct AppState {
 
 #[tokio::main]
 async fn main() {
-    let conn = match recall_core::db::connect() {
+    let conn = match learnsys_core::db::connect() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("❌ 打开数据库失败: {e}");
@@ -73,7 +73,7 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .unwrap_or_else(|e| panic!("绑定 {addr} 失败: {e}"));
-    eprintln!("recall-api listening on http://{addr}");
+    eprintln!("learnsys-api listening on http://{addr}");
     axum::serve(listener, app).await.unwrap();
 }
 
@@ -152,7 +152,7 @@ impl From<RepoError> for ApiError {
 
 /// 把 card.topic（id）替换成 topic 名，供 API 对外展示。
 fn name_topic(db: &rusqlite::Connection, card: &mut Card) {
-    card.topic = recall_core::repo::get_topic(db, &card.topic)
+    card.topic = learnsys_core::repo::get_topic(db, &card.topic)
         .map(|t| t.name)
         .unwrap_or_else(|_| card.topic.clone());
 }

@@ -1,7 +1,7 @@
-//! recall-migrate —— 把现有 markdown 卡片导入 SQLite。
+//! learnsys-migrate —— 把现有 markdown 卡片导入 SQLite。
 //!
 //! 用法:
-//!   recall-migrate [源数据目录]          # 默认 ~/.pi/learning-data
+//!   learnsys-migrate [源数据目录]          # 默认 ~/.pi/learning-data
 //!
 //! 源目录结构（对齐 Python sm2.py）:
 //!   <src>/cards/<topic>/<id>.md          # frontmatter + 正面 \n---\n 背面
@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use chrono::{NaiveDate, Utc};
 use rusqlite::{params, Connection};
 
-use recall_core::db;
+use learnsys_core::db;
 
 fn main() {
     let src = std::env::args()

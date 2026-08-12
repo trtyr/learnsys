@@ -5,25 +5,25 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-DB="${RECALL_DB:-/tmp/recall-e2e.db}"
+DB="${RECALL_DB:-/tmp/learnsys-e2e.db}"
 SRC="${1:-$HOME/.pi/learning-data}"
 B="http://127.0.0.1:7878"
 
 step() { printf "\n=== %s ===\n" "$1"; }
 
-step "1. 单测 (recall-core)"
-cargo test -p recall-core
+step "1. 单测 (learnsys-core)"
+cargo test -p learnsys-core
 
 step "2. 迁移 $SRC → $DB"
 rm -f "$DB"
-RECALL_DB="$DB" cargo run -q -p recall-migrate -- "$SRC"
+RECALL_DB="$DB" cargo run -q -p learnsys-migrate -- "$SRC"
 
 step "3. 起后端"
-RECALL_DB="$DB" cargo run -q -p recall-api > /tmp/recall-e2e-api.log 2>&1 &
+RECALL_DB="$DB" cargo run -q -p learnsys-api > /tmp/learnsys-e2e-api.log 2>&1 &
 API=$!
 trap 'kill $API 2>/dev/null || true' EXIT
 for i in $(seq 1 40); do curl -sf "$B/" >/dev/null 2>&1 && break; sleep 1; done
-curl -sf "$B/" >/dev/null || { echo "后端没起来，日志："; tail -20 /tmp/recall-e2e-api.log; exit 1; }
+curl -sf "$B/" >/dev/null || { echo "后端没起来，日志："; tail -20 /tmp/learnsys-e2e-api.log; exit 1; }
 
 step "4. API 端点"
 echo "  health    : $(curl -sf "$B/" | python3 -c 'import sys,json;print(json.load(sys.stdin)["status"])')"

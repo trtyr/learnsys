@@ -1,4 +1,4 @@
-# Plan Tree · recall
+# Plan Tree · 学习系统
 
 本项目的工作计划入口。所有规划状态在此注册和导航。
 

@@ -1,5 +1,5 @@
 [package]
-name = "recall-core"
+name = "learnsys-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

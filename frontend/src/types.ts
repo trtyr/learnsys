@@ -1,4 +1,4 @@
-// 与后端 recall-core::entity / repo 对齐的类型。
+// 与后端 learnsys-core::entity / repo 对齐的类型。
 
 export interface Card {
   id: string; topic: string; front: string; back: string;

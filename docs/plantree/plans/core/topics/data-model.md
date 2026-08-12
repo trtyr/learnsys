@@ -1,4 +1,4 @@
-# Topic: 数据模型 · recall
+# Topic: 数据模型 · 学习系统
 
 > capsule：核心实体 + 字段草案。schema 在 Phase 0 定稿。
 > 继承自现有 Python 版（`~/.pi/learning-data`），规范化为关系模型。

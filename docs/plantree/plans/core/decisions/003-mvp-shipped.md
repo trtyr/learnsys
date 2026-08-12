@@ -5,14 +5,14 @@
 
 ## 交付内容
 
-- **Phase 0**：cargo workspace（recall-core / recall-api / recall-migrate）+ SQLite schema（topics/cards/review_logs）+ markdown 迁移工具（20 张卡导入验证）
+- **Phase 0**：cargo workspace（学习系统-core / 学习系统-api / 学习系统-migrate）+ SQLite schema（topics/cards/review_logs）+ markdown 迁移工具（20 张卡导入验证）
 - **Phase 1**：SM-2 算法移植（8 单测对拍 Python）+ 仓储层 + cards REST API（POST/GET/due/:id/review/DELETE）
 - **Phase 2**：topics CRUD + stats 聚合 + dashboard 聚合端点
 - **Phase 3**：React + Vite 只读看板（统计卡 + 进行中主题 + 待复习列表 🔴🟢 + 主题分布）
 
 ## 验证
 
-- `cargo test --workspace`：recall-core 16 用例全过（entity/schema/sm2/repo）
+- `cargo test --workspace`：学习系统-core 16 用例全过（entity/schema/sm2/repo）
 - e2e：迁移 20 卡 → 后端全端点 → review q=5 得 reps=1/ef=2.6/due+1 → 前端 dist 产出
 - dev proxy 打通（Vite :5173 → 后端 :7878）
 

@@ -1,11 +1,11 @@
 [package]
-name = "recall-api"
+name = "learnsys-api"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "recall-api"
+name = "learnsys-api"
 path = "src/main.rs"
 
 [dependencies]
@@ -17,4 +17,4 @@ serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
 rusqlite.workspace = true
-recall-core = { path = "../recall-core" }
+learnsys-core = { path = "../learnsys-core" }
