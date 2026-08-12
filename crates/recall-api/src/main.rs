@@ -22,7 +22,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tower_http::cors::CorsLayer;
 
-use recall_core::entity::{Card, Goal, GoalStatus, Module, ModuleStatus, Pathway, PathwayModule, Session, Topic, TopicStatus};
+use recall_core::entity::{Card, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway, PathwayModule, Session, Topic, TopicStatus};
 use recall_core::repo::{self, RepoError};
 
 #[derive(Clone)]
@@ -62,6 +62,10 @@ async fn main() {
         .route("/api/pathways/:id/next", get(next_module))
         .route("/api/modules", post(create_module).get(list_modules))
         .route("/api/sessions/start", post(session_start))
+        .route("/api/sessions/:id/end", post(session_end))
+        .route("/api/sessions", get(list_sessions))
+        .route("/api/modules/:id/mastery", get(module_mastery))
+        .route("/api/profile", get(get_profile).put(upsert_profile))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -486,4 +490,63 @@ async fn session_start(
     let db = s.db.lock().unwrap();
     let sess = repo::start_session(&db, body.goal_id.as_deref(), body.pathway_id.as_deref())?;
     Ok((StatusCode::CREATED, Json(sess)))
+}
+
+#[derive(Deserialize)]
+struct EndSession {
+    summary: Option<String>,
+    new_cards: Option<i64>,
+    reviewed: Option<i64>,
+}
+
+async fn session_end(
+    State(s): State<AppState>,
+    Path(id): Path<i64>,
+    Json(body): Json<EndSession>,
+) -> Result<StatusCode, ApiError> {
+    let db = s.db.lock().unwrap();
+    repo::end_session(&db, id, &body.summary.unwrap_or_default(), body.new_cards.unwrap_or(0), body.reviewed.unwrap_or(0))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct SessionQuery {
+    limit: Option<i64>,
+}
+
+async fn list_sessions(
+    State(s): State<AppState>,
+    Query(q): Query<SessionQuery>,
+) -> Result<Json<Vec<Session>>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::list_sessions(&db, q.limit.unwrap_or(20))?))
+}
+
+async fn module_mastery(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<repo::ModuleMastery>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::module_mastery(&db, &id)?))
+}
+
+// ─────────────────── profile ───────────────────
+
+async fn get_profile(
+    State(s): State<AppState>,
+) -> Result<Json<LearnerProfile>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::get_profile(&db)?))
+}
+
+async fn upsert_profile(
+    State(s): State<AppState>,
+    Json(body): Json<LearnerProfile>,
+) -> Result<StatusCode, ApiError> {
+    let db = s.db.lock().unwrap();
+    let mut p = body;
+    p.id = 1;
+    p.updated = Utc::now();
+    repo::upsert_profile(&db, &p)?;
+    Ok(StatusCode::NO_CONTENT)
 }

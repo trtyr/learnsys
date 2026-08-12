@@ -569,6 +569,45 @@ pub fn upsert_profile(conn: &Connection, p: &LearnerProfile) -> Result<()> {
     Ok(())
 }
 
+// ──────────────── 进度聚合 ────────────────
+
+#[derive(Debug, serde::Serialize)]
+pub struct ModuleMastery {
+    pub module_id: String,
+    pub total_cards: i64,
+    /// 已有正向复习记录的卡片数（reps>0，粗略"已掌握"）
+    pub learned: i64,
+    pub avg_ef: f64,
+    pub due_count: i64,
+}
+
+pub fn module_mastery(conn: &Connection, module_id: &str) -> Result<ModuleMastery> {
+    let total: i64 =
+        conn.query_row("SELECT count(*) FROM cards WHERE module_id=?", params![module_id], |r| r.get(0))?;
+    let learned: i64 = conn.query_row(
+        "SELECT count(*) FROM cards WHERE module_id=? AND reps>0",
+        params![module_id],
+        |r| r.get(0),
+    )?;
+    let avg_ef: f64 = conn.query_row(
+        "SELECT COALESCE(AVG(ef),0) FROM cards WHERE module_id=?",
+        params![module_id],
+        |r| r.get(0),
+    )?;
+    let due: i64 = conn.query_row(
+        "SELECT count(*) FROM cards WHERE module_id=? AND due<=?",
+        params![module_id, to_date_str(Utc::now().date_naive())],
+        |r| r.get(0),
+    )?;
+    Ok(ModuleMastery {
+        module_id: module_id.to_string(),
+        total_cards: total,
+        learned,
+        avg_ef,
+        due_count: due,
+    })
+}
+
 // ────────────────── 聚合视图（为 stats / dashboard 看板） ──────────────────
 
 #[derive(Debug, serde::Serialize)]
