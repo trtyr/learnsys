@@ -1,0 +1,15 @@
+[package]
+name = "recall-migrate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "recall-migrate"
+path = "src/main.rs"
+
+[dependencies]
+rusqlite.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+recall-core = { path = "../recall-core" }
