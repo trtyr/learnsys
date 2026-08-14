@@ -22,7 +22,10 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use tower_http::cors::CorsLayer;
 
-use learnsys_core::entity::{Card, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway, PathwayModule, Resource, Session, Topic, TopicStatus};
+use learnsys_core::entity::{
+    Card, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway, PathwayModule, Resource,
+    Session, Topic, TopicStatus,
+};
 use learnsys_core::repo::{self, RepoError};
 
 #[derive(Clone)]
@@ -58,7 +61,10 @@ async fn main() {
         .route("/api/goals/:id/status", put(update_goal_status))
         .route("/api/pathways", post(create_pathway).get(list_pathways))
         .route("/api/pathways/:id", get(get_pathway))
-        .route("/api/pathways/:id/modules", post(add_pathway_module).get(list_pathway_mods))
+        .route(
+            "/api/pathways/:id/modules",
+            post(add_pathway_module).get(list_pathway_mods),
+        )
         .route("/api/pathways/:id/next", get(next_module))
         .route("/api/modules", post(create_module).get(list_modules))
         .route("/api/sessions/start", post(session_start))
@@ -85,7 +91,7 @@ async fn main() {
 
 async fn health() -> Json<Value> {
     Json(json!({
-        "name": "recall",
+        "name": "learnsys",
         "status": "ok",
         "tagline": "headless learning data platform",
         "note": "AI calls the API; the platform has no AI of its own."
@@ -406,7 +412,11 @@ async fn list_pathways(
     let db = s.db.lock().unwrap();
     match q.goal {
         Some(gid) => Ok(Json(repo::list_pathways_by_goal(&db, &gid)?)),
-        None => Err(ApiError { status: StatusCode::BAD_REQUEST, code: "missing_param", message: "需要 ?goal=" .into() }),
+        None => Err(ApiError {
+            status: StatusCode::BAD_REQUEST,
+            code: "missing_param",
+            message: "需要 ?goal=".into(),
+        }),
     }
 }
 
@@ -509,7 +519,13 @@ async fn session_end(
     Json(body): Json<EndSession>,
 ) -> Result<StatusCode, ApiError> {
     let db = s.db.lock().unwrap();
-    repo::end_session(&db, id, &body.summary.unwrap_or_default(), body.new_cards.unwrap_or(0), body.reviewed.unwrap_or(0))?;
+    repo::end_session(
+        &db,
+        id,
+        &body.summary.unwrap_or_default(),
+        body.new_cards.unwrap_or(0),
+        body.reviewed.unwrap_or(0),
+    )?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -585,7 +601,11 @@ async fn list_resources(
     Query(q): Query<ResourceQuery>,
 ) -> Result<Json<Vec<Resource>>, ApiError> {
     let db = s.db.lock().unwrap();
-    Ok(Json(repo::list_resources(&db, q.module_id.as_deref(), q.card_id.as_deref())?))
+    Ok(Json(repo::list_resources(
+        &db,
+        q.module_id.as_deref(),
+        q.card_id.as_deref(),
+    )?))
 }
 
 // ─────────────── heatmap + goal progress ───────────────
@@ -613,9 +633,7 @@ async fn goal_progress(
 
 // ─────────────────── profile ───────────────────
 
-async fn get_profile(
-    State(s): State<AppState>,
-) -> Result<Json<LearnerProfile>, ApiError> {
+async fn get_profile(State(s): State<AppState>) -> Result<Json<LearnerProfile>, ApiError> {
     let db = s.db.lock().unwrap();
     Ok(Json(repo::get_profile(&db)?))
 }

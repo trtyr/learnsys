@@ -62,7 +62,6 @@ fn default_src() -> PathBuf {
 
 struct RawCard {
     id: String,
-    topic: String,
     front: String,
     back: String,
     ef: f64,
@@ -91,7 +90,6 @@ fn parse_card(text: &str) -> Option<RawCard> {
     let get = |k: &str| meta.get(k).copied().unwrap_or("");
     Some(RawCard {
         id: get("id").to_string(),
-        topic: get("topic").to_string(),
         front,
         back,
         ef: get("ef").parse().unwrap_or(2.5),
@@ -152,8 +150,16 @@ fn import_cards(conn: &Connection, cards_dir: &Path) -> rusqlite::Result<(usize,
                  (id, topic, front, back, ef, interval, reps, due, created, updated)
                  VALUES (?,?,?,?,?,?,?,?,?,?)",
                 params![
-                    card.id, tid, card.front, card.back, card.ef, card.interval, card.reps,
-                    card.due.to_string(), card.created.to_string(), now,
+                    card.id,
+                    tid,
+                    card.front,
+                    card.back,
+                    card.ef,
+                    card.interval,
+                    card.reps,
+                    card.due.to_string(),
+                    card.created.to_string(),
+                    now,
                 ],
             )?;
             cards_n += 1;
@@ -171,7 +177,9 @@ fn ensure_topic(
         return Ok(id.clone());
     }
     let existing: Option<String> = conn
-        .query_row("SELECT id FROM topics WHERE name=?", params![name], |r| r.get(0))
+        .query_row("SELECT id FROM topics WHERE name=?", params![name], |r| {
+            r.get(0)
+        })
         .ok();
     let id = existing.unwrap_or_else(gen_topic_id);
     conn.execute(
@@ -201,7 +209,11 @@ fn import_progress(conn: &Connection, path: &Path) -> rusqlite::Result<usize> {
         if !line.starts_with('|') || line.contains("---") {
             continue; // 表头 / 分隔行
         }
-        let cells: Vec<&str> = line.trim_matches('|').split('|').map(|s| s.trim()).collect();
+        let cells: Vec<&str> = line
+            .trim_matches('|')
+            .split('|')
+            .map(|s| s.trim())
+            .collect();
         if cells.len() < 4 {
             continue;
         }

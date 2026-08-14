@@ -6,7 +6,10 @@
 use chrono::{DateTime, NaiveDate, Utc};
 use rusqlite::{params, Connection, Row};
 
-use crate::entity::{Card, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway, PathwayModule, Resource, ReviewLog, Session, Topic, TopicStatus};
+use crate::entity::{
+    Card, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway, PathwayModule, Resource,
+    ReviewLog, Session, Topic, TopicStatus,
+};
 use crate::sm2;
 
 #[derive(Debug, thiserror::Error)]
@@ -129,8 +132,12 @@ pub fn insert_card(conn: &Connection, c: &Card) -> Result<()> {
 }
 
 pub fn get_card(conn: &Connection, id: &str) -> Result<Card> {
-    conn.query_row("SELECT * FROM cards WHERE id = ?", params![id], card_from_row)
-        .map_err(notfound("card", id))
+    conn.query_row(
+        "SELECT * FROM cards WHERE id = ?",
+        params![id],
+        card_from_row,
+    )
+    .map_err(notfound("card", id))
 }
 
 /// 列卡片。`topic` 为主题**名**（如 "rust"），None 则全部。
@@ -183,22 +190,28 @@ pub fn delete_card(conn: &Connection, id: &str) -> Result<()> {
 }
 
 /// 记录一次复习：跑 SM-2 → 原子更新卡 + 追加复习记录。返回更新后的卡。
-pub fn review_card(
-    conn: &Connection,
-    id: &str,
-    quality: i64,
-    today: NaiveDate,
-) -> Result<Card> {
+pub fn review_card(conn: &Connection, id: &str, quality: i64, today: NaiveDate) -> Result<Card> {
     let tx = conn.unchecked_transaction()?;
     let mut card: Card = tx
-        .query_row("SELECT * FROM cards WHERE id = ?", params![id], card_from_row)
+        .query_row(
+            "SELECT * FROM cards WHERE id = ?",
+            params![id],
+            card_from_row,
+        )
         .map_err(notfound("card", id))?;
 
     let s = sm2::sm2(card.ef, card.interval, card.reps, quality, today);
     let now = Utc::now();
     tx.execute(
         "UPDATE cards SET ef=?, interval=?, reps=?, due=?, updated=? WHERE id=?",
-        params![s.ef, s.interval, s.reps, to_date_str(s.due), now.to_rfc3339(), id],
+        params![
+            s.ef,
+            s.interval,
+            s.reps,
+            to_date_str(s.due),
+            now.to_rfc3339(),
+            id
+        ],
     )?;
     tx.execute(
         "INSERT INTO review_logs (card_id, quality, reviewed_at, prev_due, new_due)
@@ -244,13 +257,21 @@ pub fn upsert_topic(conn: &Connection, t: &Topic) -> Result<()> {
 }
 
 pub fn get_topic(conn: &Connection, id: &str) -> Result<Topic> {
-    conn.query_row("SELECT * FROM topics WHERE id = ?", params![id], topic_from_row)
-        .map_err(notfound("topic", id))
+    conn.query_row(
+        "SELECT * FROM topics WHERE id = ?",
+        params![id],
+        topic_from_row,
+    )
+    .map_err(notfound("topic", id))
 }
 
 pub fn get_topic_by_name(conn: &Connection, name: &str) -> Result<Topic> {
-    conn.query_row("SELECT * FROM topics WHERE name = ?", params![name], topic_from_row)
-        .map_err(notfound("topic", name))
+    conn.query_row(
+        "SELECT * FROM topics WHERE name = ?",
+        params![name],
+        topic_from_row,
+    )
+    .map_err(notfound("topic", name))
 }
 
 pub fn list_topics(conn: &Connection) -> Result<Vec<Topic>> {
@@ -345,8 +366,12 @@ pub fn insert_pathway(conn: &Connection, p: &Pathway) -> Result<()> {
 }
 
 pub fn get_pathway(conn: &Connection, id: &str) -> Result<Pathway> {
-    conn.query_row("SELECT * FROM pathways WHERE id=?", params![id], pathway_from_row)
-        .map_err(notfound("pathway", id))
+    conn.query_row(
+        "SELECT * FROM pathways WHERE id=?",
+        params![id],
+        pathway_from_row,
+    )
+    .map_err(notfound("pathway", id))
 }
 
 pub fn list_pathways_by_goal(conn: &Connection, goal_id: &str) -> Result<Vec<Pathway>> {
@@ -377,13 +402,20 @@ pub fn insert_module(conn: &Connection, m: &Module) -> Result<()> {
 }
 
 pub fn get_module(conn: &Connection, id: &str) -> Result<Module> {
-    conn.query_row("SELECT * FROM modules WHERE id=?", params![id], module_from_row)
-        .map_err(notfound("module", id))
+    conn.query_row(
+        "SELECT * FROM modules WHERE id=?",
+        params![id],
+        module_from_row,
+    )
+    .map_err(notfound("module", id))
 }
 
 pub fn list_modules(conn: &Connection, topic: Option<&str>) -> Result<Vec<Module>> {
     let (sql, params_opt) = match topic {
-        Some(t) => ("SELECT * FROM modules WHERE topic=? ORDER BY title", Some(t.to_string())),
+        Some(t) => (
+            "SELECT * FROM modules WHERE topic=? ORDER BY title",
+            Some(t.to_string()),
+        ),
         None => ("SELECT * FROM modules ORDER BY title", None),
     };
     let mut stmt = conn.prepare(sql)?;
@@ -405,7 +437,10 @@ fn pm_from_row(r: &Row) -> rusqlite::Result<PathwayModule> {
         depends_on: if deps.is_empty() {
             vec![]
         } else {
-            deps.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+            deps.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
         },
     })
 }
@@ -428,10 +463,7 @@ pub fn list_pathway_modules(conn: &Connection, pathway_id: &str) -> Result<Vec<P
 
 /// 给定路径，按顺序 + 依赖计算下一个可学模块。
 /// 返回 (模块, 当前序号, 总模块数)。None = 路径完成或被卡住。
-pub fn next_module(
-    conn: &Connection,
-    pathway_id: &str,
-) -> Result<Option<(Module, usize, usize)>> {
+pub fn next_module(conn: &Connection, pathway_id: &str) -> Result<Option<(Module, usize, usize)>> {
     let pms = list_pathway_modules(conn, pathway_id)?;
     if pms.is_empty() {
         return Ok(None);
@@ -540,13 +572,15 @@ fn profile_from_row(r: &Row) -> rusqlite::Result<LearnerProfile> {
 }
 
 pub fn get_profile(conn: &Connection) -> Result<LearnerProfile> {
-    conn.query_row("SELECT * FROM learner_profile WHERE id=1", [], profile_from_row)
-        .map_err(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => {
-                RepoError::NotFound("learner_profile".into())
-            }
-            other => RepoError::Sqlite(other),
-        })
+    conn.query_row(
+        "SELECT * FROM learner_profile WHERE id=1",
+        [],
+        profile_from_row,
+    )
+    .map_err(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => RepoError::NotFound("learner_profile".into()),
+        other => RepoError::Sqlite(other),
+    })
 }
 
 pub fn upsert_profile(conn: &Connection, p: &LearnerProfile) -> Result<()> {
@@ -582,8 +616,11 @@ pub struct ModuleMastery {
 }
 
 pub fn module_mastery(conn: &Connection, module_id: &str) -> Result<ModuleMastery> {
-    let total: i64 =
-        conn.query_row("SELECT count(*) FROM cards WHERE module_id=?", params![module_id], |r| r.get(0))?;
+    let total: i64 = conn.query_row(
+        "SELECT count(*) FROM cards WHERE module_id=?",
+        params![module_id],
+        |r| r.get(0),
+    )?;
     let learned: i64 = conn.query_row(
         "SELECT count(*) FROM cards WHERE module_id=? AND reps>0",
         params![module_id],
@@ -609,8 +646,13 @@ pub fn module_mastery(conn: &Connection, module_id: &str) -> Result<ModuleMaster
 }
 
 pub fn update_module_status(conn: &Connection, id: &str, status: ModuleStatus) -> Result<()> {
-    let n = conn.execute("UPDATE modules SET status=? WHERE id=?", params![status.as_str(), id])?;
-    if n == 0 { return Err(RepoError::NotFound(format!("module {id}"))); }
+    let n = conn.execute(
+        "UPDATE modules SET status=? WHERE id=?",
+        params![status.as_str(), id],
+    )?;
+    if n == 0 {
+        return Err(RepoError::NotFound(format!("module {id}")));
+    }
     Ok(())
 }
 
@@ -619,9 +661,13 @@ pub fn update_module_status(conn: &Connection, id: &str, status: ModuleStatus) -
 fn resource_from_row(r: &Row) -> rusqlite::Result<Resource> {
     let created: String = r.get("created")?;
     Ok(Resource {
-        id: r.get("id")?, title: r.get("title")?, url: r.get("url")?,
-        notes: r.get("notes")?, module_id: r.get("module_id")?,
-        card_id: r.get("card_id")?, created: conv(parse_date(&created))?,
+        id: r.get("id")?,
+        title: r.get("title")?,
+        url: r.get("url")?,
+        notes: r.get("notes")?,
+        module_id: r.get("module_id")?,
+        card_id: r.get("card_id")?,
+        created: conv(parse_date(&created))?,
     })
 }
 
@@ -633,16 +679,32 @@ pub fn insert_resource(conn: &Connection, r: &Resource) -> Result<()> {
     Ok(())
 }
 
-pub fn list_resources(conn: &Connection, module_id: Option<&str>, card_id: Option<&str>) -> Result<Vec<Resource>> {
+pub fn list_resources(
+    conn: &Connection,
+    module_id: Option<&str>,
+    card_id: Option<&str>,
+) -> Result<Vec<Resource>> {
     let (sql, param) = if let Some(mid) = module_id {
-        ("SELECT * FROM resources WHERE module_id=? ORDER BY created", Some(mid.to_string()))
+        (
+            "SELECT * FROM resources WHERE module_id=? ORDER BY created",
+            Some(mid.to_string()),
+        )
     } else if let Some(cid) = card_id {
-        ("SELECT * FROM resources WHERE card_id=? ORDER BY created", Some(cid.to_string()))
+        (
+            "SELECT * FROM resources WHERE card_id=? ORDER BY created",
+            Some(cid.to_string()),
+        )
     } else {
-        ("SELECT * FROM resources ORDER BY created DESC LIMIT 50", None)
+        (
+            "SELECT * FROM resources ORDER BY created DESC LIMIT 50",
+            None,
+        )
     };
     let mut stmt = conn.prepare(sql)?;
-    let rows = match &param { Some(p) => stmt.query_map(params![p.as_str()], resource_from_row)?, None => stmt.query_map([], resource_from_row)? };
+    let rows = match &param {
+        Some(p) => stmt.query_map(params![p.as_str()], resource_from_row)?,
+        None => stmt.query_map([], resource_from_row)?,
+    };
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
@@ -659,7 +721,12 @@ pub fn heatmap(conn: &Connection, days: i64) -> Result<Vec<HeatmapDay>> {
     let mut stmt = conn.prepare(
         "SELECT substr(reviewed_at,1,10) as d, count(*) FROM review_logs WHERE d >= ? GROUP BY d ORDER BY d"
     )?;
-    let rows = stmt.query_map(params![since], |r| Ok(HeatmapDay { date: r.get(0)?, count: r.get(1)? }))?;
+    let rows = stmt.query_map(params![since], |r| {
+        Ok(HeatmapDay {
+            date: r.get(0)?,
+            count: r.get(1)?,
+        })
+    })?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
@@ -682,12 +749,23 @@ pub fn goal_progress(conn: &Connection, goal_id: &str) -> Result<GoalProgress> {
         }
     }
     let total = mids.len();
-    let mastered = mids.iter().filter(|mid| {
-        get_module(conn, mid).map(|m| matches!(m.status, ModuleStatus::Mastered)).unwrap_or(false)
-    }).count();
+    let mastered = mids
+        .iter()
+        .filter(|mid| {
+            get_module(conn, mid)
+                .map(|m| matches!(m.status, ModuleStatus::Mastered))
+                .unwrap_or(false)
+        })
+        .count();
     Ok(GoalProgress {
-        goal_id: goal_id.to_string(), total_modules: total, mastered,
-        percent: if total > 0 { (mastered as f64) / (total as f64) * 100.0 } else { 0.0 },
+        goal_id: goal_id.to_string(),
+        total_modules: total,
+        mastered,
+        percent: if total > 0 {
+            (mastered as f64) / (total as f64) * 100.0
+        } else {
+            0.0
+        },
     })
 }
 
@@ -730,14 +808,18 @@ pub fn stats(conn: &Connection, today: NaiveDate) -> Result<Stats> {
         params![today_s, soon_s],
         |r| r.get(0),
     )?;
-    let avg_ef: f64 =
-        conn.query_row("SELECT COALESCE(AVG(ef), 0) FROM cards", [], |r| r.get(0))?;
+    let avg_ef: f64 = conn.query_row("SELECT COALESCE(AVG(ef), 0) FROM cards", [], |r| r.get(0))?;
     let mut stmt = conn.prepare(
         "SELECT t.name, count(c.id) FROM topics t LEFT JOIN cards c ON c.topic = t.id
          GROUP BY t.id, t.name ORDER BY count(c.id) DESC, t.name",
     )?;
     let by_topic = stmt
-        .query_map([], |r| Ok(TopicCount { topic: r.get(0)?, count: r.get(1)? }))?
+        .query_map([], |r| {
+            Ok(TopicCount {
+                topic: r.get(0)?,
+                count: r.get(1)?,
+            })
+        })?
         .collect::<rusqlite::Result<Vec<_>>>()?;
     Ok(Stats {
         total_cards: total,
@@ -798,7 +880,10 @@ mod tests {
 
         assert_eq!(get_card(&c, &card.id).unwrap().front, "q1");
         assert_eq!(list_cards(&c, Some("rust")).unwrap().len(), 1);
-        assert_eq!(due_cards(&c, Utc::now().date_naive(), None).unwrap().len(), 1);
+        assert_eq!(
+            due_cards(&c, Utc::now().date_naive(), None).unwrap().len(),
+            1
+        );
 
         delete_card(&c, &card.id).unwrap();
         assert!(get_card(&c, &card.id).is_err());

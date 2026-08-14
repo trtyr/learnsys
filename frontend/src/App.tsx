@@ -192,17 +192,18 @@ function PathwayRow({ pw, onRefresh }: { pw: Pathway; onRefresh: () => void }) {
 function ModuleRow({ pm, idx, modules, onRefresh }: { pm: PathwayModule; idx: number; modules: Module[]; onRefresh: () => void }) {
   const [expand, setExpand] = useState(false)
   const mod = modules.find((m) => m.id === pm.module_id)
+  const modId = mod?.id
   const [mastery, setMastery] = useState<ModuleMastery | null>(null)
   const [resources, setResources] = useState<Resource[]>([])
   const [resTitle, setResTitle] = useState('')
   const [resUrl, setResUrl] = useState('')
 
   useEffect(() => {
-    if (expand && mod) {
-      api.modules.mastery(mod.id).then(setMastery)
-      api.resources.list(mod.id).then(setResources)
+    if (expand && modId) {
+      api.modules.mastery(modId).then(setMastery)
+      api.resources.list(modId).then(setResources)
     }
-  }, [expand, mod?.id])
+  }, [expand, modId])
 
   const cycleStatus = async () => {
     if (!mod) return
@@ -263,7 +264,7 @@ function ModuleRow({ pm, idx, modules, onRefresh }: { pm: PathwayModule; idx: nu
 function ReviewView({ dash, onRefresh }: { dash: Dashboard; onRefresh: () => void }) {
   const [due, setDue] = useState<Card[]>([])
   const [flipped, setFlipped] = useState<string | null>(null)
-  const load = useCallback(() => api.cards.due().then(setDue), [])
+  const load = useCallback(() => { api.cards.due().then(setDue) }, [])
   useEffect(load, [load])
   const today = new Date().toISOString().slice(0, 10)
 
@@ -339,7 +340,6 @@ function ProgressView({ dash }: { dash: Dashboard }) {
   const [heat, setHeat] = useState<HeatmapDay[]>([])
   useEffect(() => { api.sessions.list(10).then(setSessions); api.stats.heatmap(84).then(setHeat) }, [])
   const maxCount = Math.max(...dash.stats.by_topic.map((x) => x.count), 1)
-  const maxHeat = Math.max(...heat.map((h) => h.count), 1)
   const heatMap = new Map(heat.map((h) => [h.date, h.count]))
 
   // 生成最近 12 周的日历格子
@@ -419,7 +419,11 @@ function ProfileView({ profile, onRefresh }: { profile: LearnerProfile | null; o
   const [form, setForm] = useState<LearnerProfile>(
     profile || { id: 1, level: '', style: '', weak_points: [], preferences: {}, notes: '', updated: '' }
   )
-  useEffect(() => { if (profile) setForm(profile) }, [profile])
+  const [prevProfile, setPrevProfile] = useState(profile)
+  if (profile !== prevProfile) {
+    setPrevProfile(profile)
+    if (profile) setForm(profile)
+  }
 
   return (
     <div className="panel">

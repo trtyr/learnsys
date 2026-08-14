@@ -301,8 +301,12 @@ pub struct Resource {
 impl Resource {
     pub fn new(title: impl Into<String>) -> Self {
         Self {
-            id: gen_id(), title: title.into(), url: String::new(),
-            notes: String::new(), module_id: None, card_id: None,
+            id: gen_id(),
+            title: title.into(),
+            url: String::new(),
+            notes: String::new(),
+            module_id: None,
+            card_id: None,
             created: Utc::now().date_naive(),
         }
     }
@@ -355,7 +359,9 @@ mod tests {
         assert_eq!(c.ef, 2.5);
         assert_eq!(c.interval, 0);
         assert_eq!(c.reps, 0);
-        assert!(c.id.starts_with(&Utc::now().date_naive().format("%Y-%m-%d").to_string()));
+        assert!(c
+            .id
+            .starts_with(&Utc::now().date_naive().format("%Y-%m-%d").to_string()));
     }
 
     #[test]

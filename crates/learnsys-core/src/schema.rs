@@ -5,7 +5,7 @@
 //!
 //! - v1: core（topics / cards / review_logs）
 //! - v2: LMS 扩展（goals / pathways / modules / pathway_modules / sessions / learner_profile）
-//!       + cards.module_id（挂到 Module 下，nullable 兼容现有散卡）
+//!   + cards.module_id（挂到 Module 下，nullable 兼容现有散卡）
 
 use rusqlite::Connection;
 
@@ -146,14 +146,22 @@ pub fn init(conn: &Connection) -> Result<(), rusqlite::Error> {
 }
 
 /// 若 `table` 缺 `column`，则 ALTER TABLE 补列（兼容旧库渐进迁移）。
-fn ensure_column(conn: &Connection, table: &str, column: &str, type_def: &str) -> Result<(), rusqlite::Error> {
+fn ensure_column(
+    conn: &Connection,
+    table: &str,
+    column: &str,
+    type_def: &str,
+) -> Result<(), rusqlite::Error> {
     let cols: Vec<String> = {
         let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})"))?;
         let mapped = stmt.query_map([], |r| r.get::<_, String>(1))?;
         mapped.filter_map(|c| c.ok()).collect()
     };
     if !cols.iter().any(|c| c == column) {
-        conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {type_def}"), [])?;
+        conn.execute(
+            &format!("ALTER TABLE {table} ADD COLUMN {column} {type_def}"),
+            [],
+        )?;
     }
     Ok(())
 }
@@ -163,13 +171,22 @@ mod tests {
     use super::*;
 
     const ALL_TABLES: [&str; 9] = [
-        "topics", "cards", "review_logs", "modules", "goals", "pathways",
-        "pathway_modules", "sessions", "learner_profile",
+        "topics",
+        "cards",
+        "review_logs",
+        "modules",
+        "goals",
+        "pathways",
+        "pathway_modules",
+        "sessions",
+        "learner_profile",
     ];
 
     fn has_column(conn: &Connection, table: &str, column: &str) -> bool {
         let cols: Vec<String> = {
-            let mut stmt = conn.prepare(&format!("PRAGMA table_info({table})")).unwrap();
+            let mut stmt = conn
+                .prepare(&format!("PRAGMA table_info({table})"))
+                .unwrap();
             stmt.query_map([], |r| r.get::<_, String>(1))
                 .unwrap()
                 .filter_map(|c| c.ok())
@@ -183,20 +200,27 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         init(&conn).unwrap();
 
-        let v: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        let v: i64 = conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
         assert_eq!(v, SCHEMA_VERSION);
 
         for t in ALL_TABLES {
             let exists: i64 = conn
                 .query_row(
-                    &format!("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='{t}'"),
+                    &format!(
+                        "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='{t}'"
+                    ),
                     [],
                     |r| r.get(0),
                 )
                 .unwrap();
             assert_eq!(exists, 1, "缺表: {t}");
         }
-        assert!(has_column(&conn, "cards", "module_id"), "cards 缺 module_id");
+        assert!(
+            has_column(&conn, "cards", "module_id"),
+            "cards 缺 module_id"
+        );
     }
 
     #[test]
@@ -218,6 +242,9 @@ mod tests {
         .unwrap();
         assert!(!has_column(&conn, "cards", "module_id"));
         init(&conn).unwrap();
-        assert!(has_column(&conn, "cards", "module_id"), "旧库未补 module_id");
+        assert!(
+            has_column(&conn, "cards", "module_id"),
+            "旧库未补 module_id"
+        );
     }
 }
