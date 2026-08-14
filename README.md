@@ -56,6 +56,18 @@ cd frontend && npm run build   # → frontend/dist
 cargo build --release -p learnsys-api
 ```
 
+### 5. Docker（单容器）
+
+一个镜像同时跑后端 + 内置前端静态文件：
+
+```bash
+docker build -t learnsys:latest .
+docker run -d -p 7878:7878 -v learnsys-data:/data learnsys:latest
+# → http://localhost:7878（前端看板 + API 同端口）
+```
+
+数据落在 `/data` 卷；可用 `LEARNSYS_BIND`、`LEARNSYS_STATIC_DIR` 覆盖默认值。
+
 ## API 速览
 
 ### Cards / Topics / 聚合

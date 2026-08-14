@@ -21,6 +21,7 @@ use chrono::{NaiveDate, Utc};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
 
 use learnsys_core::entity::{
     Card, CardPatch, Goal, GoalPatch, GoalStatus, LearnerProfile, Module, ModulePatch,
@@ -46,8 +47,12 @@ async fn main() {
         db: Arc::new(Mutex::new(conn)),
     };
 
+    // 静态前端目录（生产：Docker 内置 dist；本地 dev 由 Vite 托管）
+    let static_dir =
+        std::env::var("LEARNSYS_STATIC_DIR").unwrap_or_else(|_| "frontend/dist".into());
+
     let app = Router::new()
-        .route("/", get(health))
+        .route("/api/health", get(health))
         .route("/api/cards", post(create_card).get(list_cards))
         .route("/api/cards/due", get(due_cards))
         .route("/api/cards/search", get(search_cards_handler))
@@ -104,10 +109,11 @@ async fn main() {
         .route("/api/backup", post(backup_handler))
         .route("/api/timeline", get(timeline_handler))
         .layer(CorsLayer::permissive())
-        .with_state(state);
+        .with_state(state)
+        .fallback_service(ServeDir::new(static_dir));
 
-    let addr = "127.0.0.1:7878";
-    let listener = tokio::net::TcpListener::bind(addr)
+    let addr = std::env::var("LEARNSYS_BIND").unwrap_or_else(|_| "127.0.0.1:7878".into());
+    let listener = tokio::net::TcpListener::bind(&addr)
         .await
         .unwrap_or_else(|e| panic!("绑定 {addr} 失败: {e}"));
     eprintln!("learnsys-api listening on http://{addr}");

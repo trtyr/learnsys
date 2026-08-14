@@ -1,0 +1,22 @@
+# Rust
+target/
+
+# 前端
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# git / pi 内部状态
+.git/
+.pi/
+
+# 运行时数据
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+backups/
+
+# 系统
+.DS_Store
+.env

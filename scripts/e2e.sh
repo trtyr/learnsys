@@ -22,11 +22,11 @@ step "3. 起后端"
 RECALL_DB="$DB" cargo run -q -p learnsys-api > /tmp/learnsys-e2e-api.log 2>&1 &
 API=$!
 trap 'kill $API 2>/dev/null || true' EXIT
-for i in $(seq 1 40); do curl -sf "$B/" >/dev/null 2>&1 && break; sleep 1; done
-curl -sf "$B/" >/dev/null || { echo "后端没起来，日志："; tail -20 /tmp/learnsys-e2e-api.log; exit 1; }
+for i in $(seq 1 40); do curl -sf "$B/api/health" >/dev/null 2>&1 && break; sleep 1; done
+curl -sf "$B/api/health" >/dev/null || { echo "后端没起来，日志："; tail -20 /tmp/learnsys-e2e-api.log; exit 1; }
 
 step "4. API 端点"
-echo "  health    : $(curl -sf "$B/" | python3 -c 'import sys,json;print(json.load(sys.stdin)["status"])')"
+echo "  health    : $(curl -sf "$B/api/health" | python3 -c 'import sys,json;print(json.load(sys.stdin)["status"])')"
 echo "  cards/due : $(curl -sf "$B/api/cards/due" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)),"张")')"
 echo "  topics    : $(curl -sf "$B/api/topics" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)),"个")')"
 echo "  dashboard :"
