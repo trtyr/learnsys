@@ -19,5 +19,6 @@ Cargo.lock.bak
 .env.*
 .DS_Store
 
-# pi goal 系统内部状态（非项目代码）
-/.pi/
+# pi goal 系统内部状态（非项目代码；.pi/skills/ 是项目 skill，需入库）
+/.pi/goals/
+/.pi/.goals-pool-snapshot.json
