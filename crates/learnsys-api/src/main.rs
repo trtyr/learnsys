@@ -23,8 +23,8 @@ use serde_json::{json, Value};
 use tower_http::cors::CorsLayer;
 
 use learnsys_core::entity::{
-    Card, CardPatch, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway,
-    PathwayModule, Resource, Session, Topic, TopicStatus,
+    Card, CardPatch, Goal, GoalPatch, GoalStatus, LearnerProfile, Module, ModulePatch,
+    ModuleStatus, Pathway, PathwayModule, PathwayPatch, Resource, Session, Topic, TopicStatus,
 };
 use learnsys_core::repo::{self, RepoError};
 
@@ -64,20 +64,35 @@ async fn main() {
         .route("/api/stats", get(stats))
         .route("/api/dashboard", get(dashboard))
         .route("/api/goals", post(create_goal).get(list_goals))
-        .route("/api/goals/:id", get(get_goal))
+        .route(
+            "/api/goals/:id",
+            get(get_goal)
+                .put(update_goal_handler)
+                .delete(delete_goal_handler),
+        )
         .route("/api/goals/:id/status", put(update_goal_status))
         .route("/api/pathways", post(create_pathway).get(list_pathways))
-        .route("/api/pathways/:id", get(get_pathway))
+        .route(
+            "/api/pathways/:id",
+            get(get_pathway)
+                .put(update_pathway_handler)
+                .delete(delete_pathway_handler),
+        )
         .route(
             "/api/pathways/:id/modules",
             post(add_pathway_module).get(list_pathway_mods),
         )
         .route("/api/pathways/:id/next", get(next_module))
         .route("/api/modules", post(create_module).get(list_modules))
+        .route(
+            "/api/modules/:id",
+            put(update_module_handler).delete(delete_module_handler),
+        )
         .route("/api/sessions/start", post(session_start))
         .route("/api/sessions/:id/end", post(session_end))
         .route("/api/sessions", get(list_sessions))
         .route("/api/modules/:id/mastery", get(module_mastery))
+        .route("/api/modules/:id/cards", get(module_cards_handler))
         .route("/api/modules/:id/status", put(update_module_status))
         .route("/api/resources", post(create_resource).get(list_resources))
         .route("/api/stats/heatmap", get(heatmap))
@@ -87,6 +102,7 @@ async fn main() {
         .route("/api/export", get(export_handler))
         .route("/api/export/markdown", get(export_markdown_handler))
         .route("/api/backup", post(backup_handler))
+        .route("/api/timeline", get(timeline_handler))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -136,6 +152,7 @@ struct UpdateCard {
     tags: Option<Vec<String>>,
     code_block: Option<String>,
     image_urls: Option<Vec<String>>,
+    module_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -247,6 +264,7 @@ async fn update_card_handler(
         tags: body.tags,
         code_block: body.code_block,
         image_urls: body.image_urls,
+        module_id: body.module_id,
     };
     let mut card = repo::update_card(&db, &id, &patch)?;
     name_topic(&db, &mut card);
@@ -334,6 +352,79 @@ async fn backup_handler(State(s): State<AppState>) -> Result<Json<Value>, ApiErr
     let dest_s = dest.to_string_lossy().to_string();
     repo::backup(&db, &dest_s)?;
     Ok(Json(json!({ "backup": dest_s })))
+}
+
+async fn timeline_handler(
+    State(s): State<AppState>,
+) -> Result<Json<Vec<repo::TimelineEvent>>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::timeline(&db, Utc::now().date_naive())?))
+}
+
+async fn update_goal_handler(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<GoalPatch>,
+) -> Result<Json<Goal>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::update_goal(&db, &id, &body)?))
+}
+
+async fn delete_goal_handler(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let db = s.db.lock().unwrap();
+    repo::delete_goal(&db, &id)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn update_pathway_handler(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<PathwayPatch>,
+) -> Result<Json<Pathway>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::update_pathway(&db, &id, &body)?))
+}
+
+async fn delete_pathway_handler(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let db = s.db.lock().unwrap();
+    repo::delete_pathway(&db, &id)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn update_module_handler(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<ModulePatch>,
+) -> Result<Json<Module>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::update_module(&db, &id, &body)?))
+}
+
+async fn delete_module_handler(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<StatusCode, ApiError> {
+    let db = s.db.lock().unwrap();
+    repo::delete_module(&db, &id)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn module_cards_handler(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Vec<Card>>, ApiError> {
+    let db = s.db.lock().unwrap();
+    let mut cards = repo::list_cards_by_module(&db, &id)?;
+    for c in &mut cards {
+        name_topic(&db, c);
+    }
+    Ok(Json(cards))
 }
 
 async fn list_cards(

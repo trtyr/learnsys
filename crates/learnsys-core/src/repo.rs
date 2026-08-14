@@ -7,8 +7,9 @@ use chrono::{DateTime, NaiveDate, Utc};
 use rusqlite::{params, Connection, Row};
 
 use crate::entity::{
-    Card, CardPatch, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway,
-    PathwayModule, Resource, ReviewLog, Session, Topic, TopicStatus,
+    Card, CardPatch, Goal, GoalPatch, GoalStatus, LearnerProfile, Module, ModulePatch,
+    ModuleStatus, Pathway, PathwayModule, PathwayPatch, Resource, ReviewLog, Session, Topic,
+    TopicStatus,
 };
 use crate::sm2;
 
@@ -367,14 +368,22 @@ pub fn update_card(conn: &Connection, id: &str, patch: &CardPatch) -> Result<Car
     if let Some(image_urls) = &patch.image_urls {
         card.image_urls = image_urls.clone();
     }
+    if let Some(mid) = &patch.module_id {
+        card.module_id = if mid.is_empty() {
+            None
+        } else {
+            Some(mid.clone())
+        };
+    }
     card.updated = Utc::now();
     conn.execute(
-        "UPDATE cards SET topic=?, tags=?, code_block=?, image_urls=?, front=?, back=?, updated=? WHERE id=?",
+        "UPDATE cards SET topic=?, tags=?, code_block=?, image_urls=?, module_id=?, front=?, back=?, updated=? WHERE id=?",
         params![
             card.topic,
             serde_json::to_string(&card.tags).unwrap_or_else(|_| String::from("[]")),
             card.code_block,
             serde_json::to_string(&card.image_urls).unwrap_or_else(|_| String::from("[]")),
+            card.module_id,
             card.front,
             card.back,
             card.updated.to_rfc3339(),
@@ -489,6 +498,90 @@ pub fn new_per_day(conn: &Connection) -> i64 {
     get_setting(conn, "new_per_day")
         .and_then(|v| v.parse().ok())
         .unwrap_or(5)
+}
+
+// ──────────────────── update / delete ────────────────────
+
+pub fn update_goal(conn: &Connection, id: &str, patch: &GoalPatch) -> Result<Goal> {
+    let mut g = get_goal(conn, id)?;
+    if let Some(t) = &patch.title {
+        g.title = t.clone();
+    }
+    if let Some(d) = &patch.description {
+        g.description = d.clone();
+    }
+    if let Some(s) = &patch.success_criteria {
+        g.success_criteria = s.clone();
+    }
+    conn.execute(
+        "UPDATE goals SET title=?, description=?, success_criteria=? WHERE id=?",
+        params![g.title, g.description, g.success_criteria, id],
+    )?;
+    Ok(g)
+}
+
+pub fn delete_goal(conn: &Connection, id: &str) -> Result<()> {
+    let n = conn.execute("DELETE FROM goals WHERE id = ?", params![id])?;
+    if n == 0 {
+        return Err(RepoError::NotFound(format!("goal {id}")));
+    }
+    Ok(())
+}
+
+pub fn update_pathway(conn: &Connection, id: &str, patch: &PathwayPatch) -> Result<Pathway> {
+    let mut p = get_pathway(conn, id)?;
+    if let Some(n) = &patch.name {
+        p.name = n.clone();
+    }
+    if let Some(m) = &patch.methodology {
+        p.methodology = m.clone();
+    }
+    if let Some(d) = &patch.description {
+        p.description = d.clone();
+    }
+    conn.execute(
+        "UPDATE pathways SET name=?, methodology=?, description=? WHERE id=?",
+        params![p.name, p.methodology, p.description, id],
+    )?;
+    Ok(p)
+}
+
+pub fn delete_pathway(conn: &Connection, id: &str) -> Result<()> {
+    let n = conn.execute("DELETE FROM pathways WHERE id = ?", params![id])?;
+    if n == 0 {
+        return Err(RepoError::NotFound(format!("pathway {id}")));
+    }
+    Ok(())
+}
+
+pub fn update_module(conn: &Connection, id: &str, patch: &ModulePatch) -> Result<Module> {
+    let mut m = get_module(conn, id)?;
+    if let Some(t) = &patch.title {
+        m.title = t.clone();
+    }
+    if let Some(d) = &patch.description {
+        m.description = d.clone();
+    }
+    conn.execute(
+        "UPDATE modules SET title=?, description=? WHERE id=?",
+        params![m.title, m.description, id],
+    )?;
+    Ok(m)
+}
+
+pub fn delete_module(conn: &Connection, id: &str) -> Result<()> {
+    let n = conn.execute("DELETE FROM modules WHERE id = ?", params![id])?;
+    if n == 0 {
+        return Err(RepoError::NotFound(format!("module {id}")));
+    }
+    Ok(())
+}
+
+/// 列出某模块下的卡片（按 module_id 过滤）。
+pub fn list_cards_by_module(conn: &Connection, module_id: &str) -> Result<Vec<Card>> {
+    let mut stmt = conn.prepare("SELECT * FROM cards WHERE module_id = ? ORDER BY due")?;
+    let rows = stmt.query_map(params![module_id], card_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
 // ───────────────────── Goal ─────────────────────
@@ -1062,6 +1155,104 @@ pub fn dashboard(conn: &Connection, today: NaiveDate) -> Result<Dashboard> {
     })
 }
 
+// ──────────────────── Timeline ────────────────────
+
+#[derive(Debug, serde::Serialize)]
+pub struct TimelineEvent {
+    /// RFC3339 时间戳。
+    pub at: String,
+    /// 事件类型：card / review / session。
+    pub kind: String,
+    /// 人类可读摘要。
+    pub summary: String,
+}
+
+/// 今天的活动时间线：今日建卡 + 今日复习 + 今日学习会话，时间倒序。
+pub fn timeline(conn: &Connection, today: NaiveDate) -> Result<Vec<TimelineEvent>> {
+    let today_s = to_date_str(today);
+    let mut events = Vec::new();
+
+    // 今日建卡（created = today，用 updated 近似创建时刻）
+    {
+        let mut stmt = conn.prepare(
+            "SELECT c.front, c.updated, COALESCE(t.name, c.topic) FROM cards c
+             LEFT JOIN topics t ON c.topic = t.id
+             WHERE c.created = ? ORDER BY c.updated DESC",
+        )?;
+        let rows = stmt.query_map(params![today_s], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (front, updated, topic) = row?;
+            events.push(TimelineEvent {
+                at: updated,
+                kind: "card".into(),
+                summary: format!("记了卡「{front}」· {topic}"),
+            });
+        }
+    }
+
+    // 今日复习
+    {
+        let mut stmt = conn.prepare(
+            "SELECT r.reviewed_at, c.front, r.quality FROM review_logs r
+             JOIN cards c ON r.card_id = c.id
+             WHERE substr(r.reviewed_at, 1, 10) = ? ORDER BY r.reviewed_at DESC",
+        )?;
+        let rows = stmt.query_map(params![today_s], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (at, front, q) = row?;
+            events.push(TimelineEvent {
+                at,
+                kind: "review".into(),
+                summary: format!("复习「{front}」 q={q}"),
+            });
+        }
+    }
+
+    // 今日学习会话
+    {
+        let mut stmt = conn.prepare(
+            "SELECT started_at, summary, new_cards, reviewed FROM sessions
+             WHERE substr(started_at, 1, 10) = ? ORDER BY started_at DESC",
+        )?;
+        let rows = stmt.query_map(params![today_s], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, i64>(2)?,
+                r.get::<_, i64>(3)?,
+            ))
+        })?;
+        for row in rows {
+            let (at, summary, new_cards, reviewed) = row?;
+            events.push(TimelineEvent {
+                at,
+                kind: "session".into(),
+                summary: if summary.is_empty() {
+                    format!("学习会话 · 新建 {new_cards} · 复习 {reviewed}")
+                } else {
+                    summary
+                },
+            });
+        }
+    }
+
+    // 时间倒序
+    events.sort_by(|a, b| b.at.cmp(&a.at));
+    Ok(events)
+}
+
 // ──────────────────── Export / Backup ────────────────────
 
 #[derive(Debug, serde::Serialize)]
@@ -1461,5 +1652,99 @@ mod tests {
         }
         assert_eq!(streak(&c, today), 3);
         assert!(has_review_on(&c, today));
+    }
+
+    #[test]
+    fn timeline_captures_today_activity() {
+        let c = mem();
+        let t = seed_topic(&c);
+        let card = Card::new(t.id.clone(), "所有权", "独占");
+        insert_card(&c, &card).unwrap();
+        review_card(&c, &card.id, 5, Utc::now().date_naive()).unwrap();
+        start_session(&c, None, None).unwrap();
+
+        let events = timeline(&c, Utc::now().date_naive()).unwrap();
+        assert!(events
+            .iter()
+            .any(|e| e.kind == "card" && e.summary.contains("所有权")));
+        assert!(events.iter().any(|e| e.kind == "review"));
+        assert!(events.iter().any(|e| e.kind == "session"));
+        // 时间倒序
+        let ats: Vec<&String> = events.iter().map(|e| &e.at).collect();
+        let mut sorted = ats.clone();
+        sorted.sort();
+        sorted.reverse();
+        assert_eq!(ats, sorted);
+    }
+
+    #[test]
+    fn goal_pathway_module_update_and_delete() {
+        let c = mem();
+
+        let g = Goal::new("Rust 入门");
+        insert_goal(&c, &g).unwrap();
+        let updated = update_goal(
+            &c,
+            &g.id,
+            &GoalPatch {
+                title: Some("Rust 进阶".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(updated.title, "Rust 进阶");
+
+        let p = Pathway::new("基础优先", g.id.clone());
+        insert_pathway(&c, &p).unwrap();
+        let p2 = update_pathway(
+            &c,
+            &p.id,
+            &PathwayPatch {
+                name: Some("项目驱动".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(p2.name, "项目驱动");
+
+        let m = Module::new("所有权");
+        insert_module(&c, &m).unwrap();
+        let m2 = update_module(
+            &c,
+            &m.id,
+            &ModulePatch {
+                title: Some("所有权与借用".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(m2.title, "所有权与借用");
+
+        delete_module(&c, &m.id).unwrap();
+        assert!(get_module(&c, &m.id).is_err());
+        delete_pathway(&c, &p.id).unwrap();
+        assert!(get_pathway(&c, &p.id).is_err());
+        delete_goal(&c, &g.id).unwrap();
+        assert!(get_goal(&c, &g.id).is_err());
+    }
+
+    #[test]
+    fn delete_goal_cascades_pathway_and_pathway_modules() {
+        let c = mem();
+        let g = Goal::new("目标");
+        insert_goal(&c, &g).unwrap();
+        let p = Pathway::new("路径", g.id.clone());
+        insert_pathway(&c, &p).unwrap();
+        let m = Module::new("模块");
+        insert_module(&c, &m).unwrap();
+        insert_pathway_module(&c, &PathwayModule::new(p.id.clone(), m.id.clone(), 0)).unwrap();
+
+        delete_goal(&c, &g.id).unwrap();
+        // 路径被级联删除
+        assert!(get_pathway(&c, &p.id).is_err());
+        // 路径-模块关联被级联删除
+        assert!(list_pathway_modules(&c, &p.id).unwrap().is_empty());
+        // 模块本身保留（不挂在 goal 下）
+        assert!(get_module(&c, &m.id).is_ok());
     }
 }

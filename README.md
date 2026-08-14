@@ -19,7 +19,7 @@ AI Agent (Pi / Claude / 脚本 … 都是平等客户)
 | 后端服务 | `crates/learnsys-api` | axum REST：cards / topics / goals / pathways / modules / sessions / stats |
 | 领域层 | `crates/learnsys-core` | 实体 · SM-2 算法 · SQLite 仓储 · 聚合 |
 | 迁移工具 | `crates/learnsys-migrate` | markdown → SQLite 导入 |
-| 前端看板 | `frontend/` | React + Vite，只读学习舱 |
+| 前端工作台 | `frontend/` | React + Vite，个人学习工作台（今天 / 学习库 / 回顾 + 快捷记录） |
 
 ## 快速开始
 
@@ -85,16 +85,18 @@ cargo build --release -p learnsys-api
 | Method | Path | 作用 |
 |--------|------|------|
 | POST / GET | `/api/goals` | 建 / 列目标 |
-| GET | `/api/goals/:id` | 取目标 |
+| GET / PUT / DELETE | `/api/goals/:id` | 取 / 改（重命名）/ 删目标（级联删路径） |
 | PUT | `/api/goals/:id/status` | 更新目标状态 |
 | GET | `/api/goals/:id/progress` | 目标进度（模块完成度） |
 | POST | `/api/pathways` | 建路径 `{name, goal_id}` |
 | GET | `/api/pathways` | 列路径 `?goal=` |
-| GET | `/api/pathways/:id` | 取路径 |
+| GET / PUT / DELETE | `/api/pathways/:id` | 取 / 改（重命名）/ 删路径（级联删模块序列） |
 | POST / GET | `/api/pathways/:id/modules` | 挂 / 列路径模块（含依赖） |
 | GET | `/api/pathways/:id/next` | 下一个可学模块（依赖检查） |
 | POST / GET | `/api/modules` | 建 / 列模块 |
+| PUT / DELETE | `/api/modules/:id` | 改（重命名）/ 删模块（卡片降为散卡） |
 | GET | `/api/modules/:id/mastery` | 模块掌握度聚合 |
+| GET | `/api/modules/:id/cards` | 模块下的卡片列表 |
 | PUT | `/api/modules/:id/status` | 更新模块状态 |
 | POST | `/api/sessions/start` | 开学习会话 |
 | POST | `/api/sessions/:id/end` | 结会话（summary / new_cards / reviewed） |
@@ -111,6 +113,7 @@ cargo build --release -p learnsys-api
 | GET | `/api/export` | 全量 JSON 导出（所有实体） |
 | GET | `/api/export/markdown` | markdown 导出（migrate 兼容 frontmatter） |
 | POST | `/api/backup` | SQLite 一致性快照备份（`VACUUM INTO`） |
+| GET | `/api/timeline` | 今日活动时间线（建卡 + 复习 + 会话，时间倒序） |
 
 `review` 是 SM-2 调度的唯一入口，原子更新卡 + 追加复习记录。
 

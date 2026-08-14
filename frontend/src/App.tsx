@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { api } from './api'
-import type { Card, Dashboard, Goal, GoalProgress, HeatmapDay, LearnerProfile, Module, ModuleMastery, Pathway, PathwayModule, Resource, Session } from './types'
+import type { Card, Dashboard, Goal, GoalProgress, HeatmapDay, LearnerProfile, Module, ModuleMastery, Pathway, PathwayModule, Resource, Session, TimelineEvent } from './types'
 
-type Tab = 'plan' | 'review' | 'progress' | 'profile'
+type Tab = 'today' | 'library' | 'review'
+type CaptureKind = 'card' | 'goal' | 'note'
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('review')
+  const [tab, setTab] = useState<Tab>('today')
   const [dash, setDash] = useState<Dashboard | null>(null)
   const [profile, setProfile] = useState<LearnerProfile | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
+  const [capture, setCapture] = useState<CaptureKind | null>(null)
+  const [showProfile, setShowProfile] = useState(false)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   const reload = useCallback(() => {
     Promise.all([api.dashboard(), api.profile.get()])
@@ -20,42 +24,144 @@ export default function App() {
   useEffect(reload, [reload])
 
   if (err) return <Shell><div className="error">加载失败: {err}</div></Shell>
-  if (loading || !dash) return <Shell><div className="loading">知识出发板启动中…</div></Shell>
+  if (loading || !dash) return <Shell><div className="loading">学习系统启动中…</div></Shell>
 
   const today = new Date().toISOString().slice(0, 10)
 
   return (
     <Shell>
       <header className="header">
-        <h1>学习系统<span className="muted"> / 知识出发板</span></h1>
+        <h1>学习系统<span className="muted"> / 今天 {today}</span></h1>
         <div className="header-stats">
-          <span>{today}</span>
           <ReminderBadges dash={dash} />
+          <QuickCapture onOpen={setCapture} />
+          <button className="ghost-btn" style={{ marginTop: 0 }} onClick={() => setShowProfile(!showProfile)}>站务</button>
         </div>
       </header>
 
+      {capture && <CaptureModal kind={capture} onClose={() => setCapture(null)} onSaved={() => { setCapture(null); reload(); setRefreshKey((k) => k + 1) }} />}
+
       <nav className="tabs">
-        {(['plan', 'review', 'progress', 'profile'] as Tab[]).map((t) => (
+        {(['today', 'library', 'review'] as Tab[]).map((t) => (
           <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
-            {{ plan: '计划 / Plan', review: '出发板 / Board', progress: '进度 / Log', profile: '站务 / Master' }[t]}
+            {{ today: '今天 / Today', library: '学习库 / Library', review: '回顾 / Review' }[t]}
           </button>
         ))}
       </nav>
 
       <main>
-        {tab === 'plan' && <PlanView onRefresh={reload} />}
-        {tab === 'review' && <ReviewView dash={dash} onRefresh={reload} />}
-        {tab === 'progress' && <ProgressView dash={dash} />}
-        {tab === 'profile' && <ProfileView profile={profile} onRefresh={reload} />}
+        {showProfile && <ProfileView profile={profile} onRefresh={reload} />}
+        {tab === 'today' && <TodayView key={refreshKey} dash={dash} onRefresh={reload} />}
+        {tab === 'library' && <LibraryView onRefresh={reload} />}
+        {tab === 'review' && <ProgressView dash={dash} />}
       </main>
 
-      <footer className="footer">知识出发板 · AI 调 API 操作 · today {today}</footer>
+      <footer className="footer">学习系统 · 你是主人 · today {today}</footer>
     </Shell>
   )
 }
 
 function Shell({ children }: { children: ReactNode }) {
   return <div className="wrap">{children}</div>
+}
+
+// 常驻快捷记录入口。
+export function QuickCapture({ onOpen }: { onOpen: (k: CaptureKind) => void }) {
+  return (
+    <>
+      <button className="ghost-btn" style={{ marginTop: 0 }} onClick={() => onOpen('card')}>＋ 记卡</button>
+      <button className="ghost-btn" style={{ marginTop: 0 }} onClick={() => onOpen('goal')}>＋ 目标</button>
+      <button className="ghost-btn" style={{ marginTop: 0 }} onClick={() => onOpen('note')}>＋ 笔记</button>
+    </>
+  )
+}
+
+// 快捷记录弹层：记卡 / 开目标 / 记笔记。
+export function CaptureModal({ kind, onClose, onSaved }: { kind: CaptureKind; onClose: () => void; onSaved: () => void }) {
+  const [topic, setTopic] = useState('rust')
+  const [front, setFront] = useState('')
+  const [back, setBack] = useState('')
+  const [title, setTitle] = useState('')
+  const [noteTitle, setNoteTitle] = useState('')
+  const [notes, setNotes] = useState('')
+  const [url, setUrl] = useState('')
+  const [err, setErr] = useState<string | null>(null)
+
+  const submit = async () => {
+    setErr(null)
+    try {
+      if (kind === 'card' && front) {
+        await api.cards.create({ topic, front, back })
+      } else if (kind === 'goal' && title) {
+        await api.goals.create({ title })
+      } else if (kind === 'note' && noteTitle) {
+        await api.resources.create({ title: noteTitle, notes, url })
+      } else {
+        return
+      }
+      onSaved()
+    } catch (e) {
+      setErr(String(e))
+    }
+  }
+
+  return (
+    <div className="panel" style={{ borderColor: 'var(--amber)' }}>
+      <div className="panel-header">快捷记录 · {{ card: '记卡', goal: '开目标', note: '记笔记' }[kind]}</div>
+      <div className="panel-body form-col">
+        {kind === 'card' && (
+          <>
+            <label>主题</label>
+            <input value={topic} onChange={(e) => setTopic(e.target.value)} placeholder="rust" />
+            <label>正面（问题 / 概念）</label>
+            <textarea rows={2} value={front} onChange={(e) => setFront(e.target.value)} autoFocus />
+            <label>背面（答案）</label>
+            <textarea rows={2} value={back} onChange={(e) => setBack(e.target.value)} />
+          </>
+        )}
+        {kind === 'goal' && (
+          <>
+            <label>目标</label>
+            <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="学会 Rust" autoFocus />
+          </>
+        )}
+        {kind === 'note' && (
+          <>
+            <label>笔记标题</label>
+            <input value={noteTitle} onChange={(e) => setNoteTitle(e.target.value)} placeholder="所有权要点" autoFocus />
+            <label>内容 / 链接</label>
+            <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} />
+            <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://…（可选）" />
+          </>
+        )}
+        {err && <div className="error" style={{ padding: '4px 0' }}>保存失败: {err}</div>}
+        <div className="form-row">
+          <button onClick={submit}>保存</button>
+          <button className="ghost-btn" onClick={onClose}>取消</button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// 今日时间线。
+export function TimelineView({ events }: { events: TimelineEvent[] }) {
+  if (events.length === 0) {
+    return <div className="loading" style={{ padding: 16 }}>今天还没有记录——记一张卡或复习一下开始。</div>
+  }
+  const kindLabel = { card: '记卡', review: '复习', session: '会话' } as const
+  return (
+    <ul className="card-list" style={{ padding: '0 16px' }}>
+      {events.map((e, i) => (
+        <li key={i} className="card-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 2 }}>
+          <div style={{ fontFamily: 'var(--font-flap)', fontSize: 11, color: 'var(--muted)' }}>
+            {new Date(e.at).toLocaleTimeString('zh-CN')} · {kindLabel[e.kind]}
+          </div>
+          <div>{e.summary}</div>
+        </li>
+      ))}
+    </ul>
+  )
 }
 
 // 提醒红点：待出发/延误/顽固卡/streak，按需亮起的徽标。
@@ -70,11 +176,12 @@ export function ReminderBadges({ dash }: { dash: Dashboard }) {
   )
 }
 
-// ═════════════════ PlanView — 目标进度 + 路径模块 ═════════════════
+// ═════════════════ LibraryView — 学习库（目标 → 路径 → 模块） ═════════════════
 
-function PlanView({ onRefresh }: { onRefresh: () => void }) {
+export function LibraryView({ onRefresh }: { onRefresh: () => void }) {
   const [goals, setGoals] = useState<Goal[]>([])
   const [progress, setProgress] = useState<Record<string, GoalProgress>>({})
+  const [notes, setNotes] = useState<Resource[]>([])
   const [newTitle, setNewTitle] = useState('')
   const [method, setMethod] = useState('基础优先')
 
@@ -83,6 +190,7 @@ function PlanView({ onRefresh }: { onRefresh: () => void }) {
       setGoals(gs)
       gs.forEach((g) => api.goals.progress(g.id).then((p) => setProgress((x) => ({ ...x, [g.id]: p }))).catch(() => {}))
     })
+    api.resources.list().then(setNotes).catch(() => setNotes([]))
   }, [])
   useEffect(load, [load])
 
@@ -110,13 +218,35 @@ function PlanView({ onRefresh }: { onRefresh: () => void }) {
           </div>
         )
       })}
+
+      <div className="panel">
+        <div className="panel-header">笔记 · {notes.length} 条</div>
+        <div className="panel-body" style={{ padding: 0 }}>
+          {notes.length === 0 ? (
+            <div className="loading" style={{ padding: 16 }}>还没有笔记——点顶部「＋ 笔记」记一条。</div>
+          ) : (
+            <ul className="card-list" style={{ padding: '0 16px' }}>
+              {notes.map((r) => (
+                <li key={r.id} className="card-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 2 }}>
+                  <div>
+                    {r.url ? <a href={r.url} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{r.title}</a> : <b>{r.title}</b>}
+                  </div>
+                  {r.notes && <div className="muted" style={{ fontSize: 12 }}>{r.notes}</div>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
 
-function GoalRow({ goal, progress, onRefresh }: { goal: Goal; progress?: GoalProgress; onRefresh: () => void }) {
+export function GoalRow({ goal, progress, onRefresh }: { goal: Goal; progress?: GoalProgress; onRefresh: () => void }) {
   const [expand, setExpand] = useState(false)
   const [pws, setPws] = useState<Pathway[]>([])
+  const [editing, setEditing] = useState(false)
+  const [title, setTitle] = useState(goal.title)
 
   useEffect(() => {
     if (expand) api.pathways.listByGoal(goal.id).then(setPws)
@@ -124,13 +254,36 @@ function GoalRow({ goal, progress, onRefresh }: { goal: Goal; progress?: GoalPro
 
   const pct = progress?.percent ?? 0
 
+  const save = async () => {
+    await api.goals.update(goal.id, { title })
+    setEditing(false); onRefresh()
+  }
+  const del = async () => {
+    if (window.confirm(`删除目标「${goal.title}」及其路径？`)) {
+      await api.goals.delete(goal.id)
+      onRefresh()
+    }
+  }
+
   return (
     <div>
-      <div className="goal-row" onClick={() => setExpand(!expand)}>
+      <div className="goal-row" onClick={() => !editing && setExpand(!expand)}>
         <span className={`tag ${goal.status === 'achieved' ? 'green' : goal.status === 'abandoned' ? 'muted' : 'amber'}`}>{goal.status}</span>
-        <b>{goal.title}</b>
-        {goal.success_criteria && <span className="muted">— {goal.success_criteria}</span>}
-        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-flap)', color: 'var(--muted)' }}>{expand ? '▾' : '▸'}</span>
+        {editing ? (
+          <input value={title} onChange={(e) => setTitle(e.target.value)} onClick={(e) => e.stopPropagation()} autoFocus style={{ flex: 1 }} />
+        ) : (
+          <b>{goal.title}</b>
+        )}
+        {!editing && goal.success_criteria && <span className="muted">— {goal.success_criteria}</span>}
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+          {editing ? (
+            <button className="ghost-btn" style={{ marginTop: 0 }} onClick={(e) => { e.stopPropagation(); save() }}>保存</button>
+          ) : (
+            <button className="ghost-btn" style={{ marginTop: 0 }} onClick={(e) => { e.stopPropagation(); setEditing(true) }}>✎</button>
+          )}
+          <button className="ghost-btn" style={{ marginTop: 0 }} onClick={(e) => { e.stopPropagation(); del() }}>🗑</button>
+          <span style={{ fontFamily: 'var(--font-flap)', color: 'var(--muted)' }}>{expand ? '▾' : '▸'}</span>
+        </span>
       </div>
       {progress && progress.total_modules > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 0 8px', fontFamily: 'var(--font-flap)', fontSize: 11, color: 'var(--muted)' }}>
@@ -161,6 +314,8 @@ function PathwayRow({ pw, onRefresh }: { pw: Pathway; onRefresh: () => void }) {
   const [next, setNext] = useState<{ done?: boolean; module?: Module; position?: number; total?: number } | null>(null)
   const [title, setTitle] = useState('')
   const [order, setOrder] = useState(1)
+  const [pwEditing, setPwEditing] = useState(false)
+  const [pwName, setPwName] = useState(pw.name)
 
   const loadDetail = useCallback(() => {
     api.pathways.modules(pw.id).then(setPms)
@@ -170,12 +325,35 @@ function PathwayRow({ pw, onRefresh }: { pw: Pathway; onRefresh: () => void }) {
 
   useEffect(() => { if (expand) loadDetail() }, [expand, loadDetail])
 
+  const savePw = async () => {
+    await api.pathways.update(pw.id, { name: pwName })
+    setPwEditing(false); onRefresh()
+  }
+  const delPw = async () => {
+    if (window.confirm(`删除路径「${pw.name}」及其模块序列？`)) {
+      await api.pathways.delete(pw.id)
+      onRefresh()
+    }
+  }
+
   return (
     <div>
-      <div className="pathway-row" onClick={() => setExpand(!expand)}>
+      <div className="pathway-row" onClick={() => !pwEditing && setExpand(!expand)}>
         <span className="tag" style={{ background: 'rgba(192,192,192,.12)', color: 'var(--accent)' }}>{pw.methodology || '路径'}</span>
-        <b>{pw.name}</b>
-        <span style={{ marginLeft: 'auto', fontFamily: 'var(--font-flap)', color: 'var(--muted)' }}>{expand ? '▾' : '▸'}</span>
+        {pwEditing ? (
+          <input value={pwName} onChange={(e) => setPwName(e.target.value)} onClick={(e) => e.stopPropagation()} autoFocus style={{ flex: 1 }} />
+        ) : (
+          <b>{pw.name}</b>
+        )}
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 6, alignItems: 'center' }}>
+          {pwEditing ? (
+            <button className="ghost-btn" style={{ marginTop: 0 }} onClick={(e) => { e.stopPropagation(); savePw() }}>保存</button>
+          ) : (
+            <button className="ghost-btn" style={{ marginTop: 0 }} onClick={(e) => { e.stopPropagation(); setPwEditing(true) }}>✎</button>
+          )}
+          <button className="ghost-btn" style={{ marginTop: 0 }} onClick={(e) => { e.stopPropagation(); delPw() }}>🗑</button>
+          <span style={{ fontFamily: 'var(--font-flap)', color: 'var(--muted)' }}>{expand ? '▾' : '▸'}</span>
+        </span>
       </div>
       {expand && (
         <div>
@@ -206,13 +384,17 @@ function ModuleRow({ pm, idx, modules, onRefresh }: { pm: PathwayModule; idx: nu
   const modId = mod?.id
   const [mastery, setMastery] = useState<ModuleMastery | null>(null)
   const [resources, setResources] = useState<Resource[]>([])
+  const [cards, setCards] = useState<Card[]>([])
   const [resTitle, setResTitle] = useState('')
   const [resUrl, setResUrl] = useState('')
+  const [mEditing, setMEditing] = useState(false)
+  const [mTitle, setMTitle] = useState(mod?.title ?? '')
 
   useEffect(() => {
     if (expand && modId) {
       api.modules.mastery(modId).then(setMastery)
       api.resources.list(modId).then(setResources)
+      api.modules.cards(modId).then(setCards).catch(() => setCards([]))
     }
   }, [expand, modId])
 
@@ -223,29 +405,64 @@ function ModuleRow({ pm, idx, modules, onRefresh }: { pm: PathwayModule; idx: nu
     onRefresh()
   }
 
+  const saveM = async () => {
+    if (!mod) return
+    await api.modules.update(mod.id, { title: mTitle })
+    setMEditing(false); onRefresh()
+  }
+  const delM = async () => {
+    if (!mod) return
+    if (window.confirm(`删除模块「${mod.title}」？其下卡片会保留为散卡。`)) {
+      await api.modules.delete(mod.id)
+      onRefresh()
+    }
+  }
+
   return (
     <div>
       <div className="module-row">
         <span className="idx">{idx + 1}</span>
-        <span className="title" style={{ cursor: 'pointer' }} onClick={() => setExpand(!expand)}>
-          {mod?.title || pm.module_id.slice(0, 12)} {expand ? '▾' : '▸'}
-        </span>
-        {mod && (
+        {mEditing ? (
+          <input value={mTitle} onChange={(e) => setMTitle(e.target.value)} onClick={(e) => e.stopPropagation()} autoFocus style={{ flex: 1 }} />
+        ) : (
+          <span className="title" style={{ cursor: 'pointer' }} onClick={() => setExpand(!expand)}>
+            {mod?.title || pm.module_id.slice(0, 12)} {expand ? '▾' : '▸'}
+          </span>
+        )}
+        {mod && !mEditing && (
           <span className="tag" onClick={cycleStatus} style={{
             cursor: 'pointer',
             background: mod.status === 'mastered' ? 'rgba(90,158,111,.15)' : mod.status === 'learning' ? 'rgba(245,166,35,.15)' : 'rgba(102,102,102,.1)',
             color: mod.status === 'mastered' ? 'var(--green)' : mod.status === 'learning' ? 'var(--amber)' : 'var(--muted)'
           }}>{mod.status}</span>
         )}
-        {pm.depends_on.length > 0 && (
+        {pm.depends_on.length > 0 && !mEditing && (
           <span className="depends">◂ {pm.depends_on.map((did) => modules.find((m) => m.id === did)?.title || did.slice(0, 8)).join(' · ')}</span>
         )}
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+          {mEditing ? (
+            <button className="ghost-btn" style={{ marginTop: 0, padding: '2px 6px' }} onClick={(e) => { e.stopPropagation(); saveM() }}>保存</button>
+          ) : (
+            <button className="ghost-btn" style={{ marginTop: 0, padding: '2px 6px' }} onClick={(e) => { e.stopPropagation(); setMEditing(true) }}>✎</button>
+          )}
+          <button className="ghost-btn" style={{ marginTop: 0, padding: '2px 6px' }} onClick={(e) => { e.stopPropagation(); delM() }}>🗑</button>
+        </span>
       </div>
       {expand && mod && (
         <div style={{ padding: '4px 0 12px 48px', borderLeft: '1px solid var(--border)', marginLeft: 12 }}>
           {mastery && (
             <div style={{ fontFamily: 'var(--font-flap)', fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
               卡片 {mastery.total_cards} · 已学 {mastery.learned} · 平均 EF {mastery.avg_ef.toFixed(2)} · 待复习 {mastery.due_count}
+            </div>
+          )}
+          {cards.length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              {cards.map((card) => (
+                <div key={card.id} style={{ fontFamily: 'var(--font-flap)', fontSize: 12, padding: '2px 0', color: 'var(--text)' }}>
+                  ◆ {card.front}
+                  <span className="muted" style={{ marginLeft: 8 }}>EF {card.ef.toFixed(1)} · {card.reps > 0 ? `${card.reps} 次` : '新卡'}</span>
+                </div>
+              ))}
             </div>
           )}
           {resources.map((r) => (
@@ -270,9 +487,9 @@ function ModuleRow({ pm, idx, modules, onRefresh }: { pm: PathwayModule; idx: nu
   )
 }
 
-// ═══════════════ ReviewView — 翻卡复习 + 搜索 + 编辑 ═══════════════
+// ═══════════════ TodayView — 今天（复习 + 搜索 + 时间线） ═══════════════
 
-function ReviewView({ dash, onRefresh }: { dash: Dashboard; onRefresh: () => void }) {
+function TodayView({ dash, onRefresh }: { dash: Dashboard; onRefresh: () => void }) {
   const [due, setDue] = useState<Card[]>([])
   const [flipped, setFlipped] = useState<string | null>(null)
   const [q, setQ] = useState('')
@@ -281,8 +498,11 @@ function ReviewView({ dash, onRefresh }: { dash: Dashboard; onRefresh: () => voi
   const [newCards, setNewCards] = useState<Card[] | null>(null)
   const [quiz, setQuiz] = useState<Card[] | null>(null)
   const [budget, setBudget] = useState(5)
+  const [timeline, setTimeline] = useState<TimelineEvent[]>([])
   const load = useCallback(() => { api.cards.due().then(setDue) }, [])
+  const loadTimeline = useCallback(() => { api.timeline().then(setTimeline).catch(() => {}) }, [])
   useEffect(load, [load])
+  useEffect(loadTimeline, [loadTimeline])
   useEffect(() => { api.settings.get().then((s) => setBudget(s.new_per_day)).catch(() => {}) }, [])
   const today = new Date().toISOString().slice(0, 10)
 
@@ -294,7 +514,7 @@ function ReviewView({ dash, onRefresh }: { dash: Dashboard; onRefresh: () => voi
   }
 
   const review = (c: Card, qq: number) => {
-    api.cards.review(c.id, qq).then(() => { setFlipped(null); load(); onRefresh() })
+    api.cards.review(c.id, qq).then(() => { setFlipped(null); load(); loadTimeline(); onRefresh() })
   }
 
   return (
@@ -304,6 +524,13 @@ function ReviewView({ dash, onRefresh }: { dash: Dashboard; onRefresh: () => voi
         <Stat label="延误" value={dash.due_soon} accent={dash.due_soon > 0 ? 'hot' : ''} />
         <Stat label="总计" value={dash.stats.total_cards} />
         <Stat label="平均 EF" value={dash.stats.avg_ef.toFixed(2)} />
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">今天的时间线</div>
+        <div className="panel-body" style={{ padding: 0 }}>
+          <TimelineView events={timeline} />
+        </div>
       </div>
 
       <div className="form-row" style={{ margin: '10px 0' }}>
@@ -465,6 +692,9 @@ export function CardEditor({ card, onClose, onSaved }: { card: Card; onClose: ()
   const [tags, setTags] = useState(card.tags.join(', '))
   const [codeBlock, setCodeBlock] = useState(card.code_block ?? '')
   const [imageUrls, setImageUrls] = useState(card.image_urls.join(', '))
+  const [moduleId, setModuleId] = useState(card.module_id ?? '')
+  const [modules, setModules] = useState<Module[]>([])
+  useEffect(() => { api.modules.list().then(setModules).catch(() => setModules([])) }, [])
   return (
     <div className="panel" style={{ marginBottom: 10, borderColor: 'var(--amber)' }}>
       <div className="panel-header">编辑卡片 · {card.id.slice(-6)}</div>
@@ -479,6 +709,11 @@ export function CardEditor({ card, onClose, onSaved }: { card: Card; onClose: ()
         <textarea rows={3} value={codeBlock} onChange={(e) => setCodeBlock(e.target.value)} placeholder="fn main() {}" style={{ fontFamily: 'var(--font-flap)', fontSize: 12 }} />
         <label>图片 URL（逗号分隔）</label>
         <input value={imageUrls} onChange={(e) => setImageUrls(e.target.value)} placeholder="https://…" />
+        <label>挂到模块</label>
+        <select value={moduleId} onChange={(e) => setModuleId(e.target.value)}>
+          <option value="">（散卡，不挂模块）</option>
+          {modules.map((m) => <option key={m.id} value={m.id}>{m.title}</option>)}
+        </select>
         <div className="form-row">
           <button onClick={async () => {
             await api.cards.update(card.id, {
@@ -486,6 +721,7 @@ export function CardEditor({ card, onClose, onSaved }: { card: Card; onClose: ()
               tags: tags.split(',').map((s) => s.trim()).filter(Boolean),
               code_block: codeBlock,
               image_urls: imageUrls.split(',').map((s) => s.trim()).filter(Boolean),
+              module_id: moduleId,
             })
             onSaved()
           }}>保存</button>

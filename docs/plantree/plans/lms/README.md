@@ -31,7 +31,8 @@
 | [topics/scheduling-hardening.md](topics/scheduling-hardening.md) | Phase H 调度层（新卡节奏/leech） |
 | [topics/data-export-backup.md](topics/data-export-backup.md) | Phase I 数据层（导出/备份） |
 | [topics/experience-and-quiz.md](topics/experience-and-quiz.md) | Phase J 体验层（提醒/streak/测验） |
-| [decisions/](decisions/) | 方向决策（001 方向 / 002 A–F / 003 G–J） |
+| [topics/workbench-redesign.md](topics/workbench-redesign.md) | 工作台重构（今天/学习库/回顾 + 快捷记录） |
+| [decisions/](decisions/) | 方向决策（001 方向 / 002 A–F / 003 G–J / 004 定位翻转） |
 | [open-questions.md](open-questions.md) | 待决策（已全部收敛） |
 
 ## 与 core 的关系

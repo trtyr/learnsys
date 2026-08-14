@@ -221,9 +221,9 @@ body {
 .flap-status, .flap-meta { font-size: 12px; }
 
 /* ───────────────── heatmap ───────────────── */
-.heatmap { display: grid; grid-template-columns: repeat(12, 1fr); gap: 4px; }
+.heatmap { display: flex; flex-wrap: wrap; gap: 4px; }
 .heat-cell {
-  aspect-ratio: 1; border-radius: 3px; background: #1a1a1a; width: 100%;
+  width: 14px; height: 14px; border-radius: 3px; background: #1a1a1a;
 }
 .heat-cell.lvl-0 { background: #1a1a1a; }
 .heat-cell.lvl-1 { background: rgba(245,166,35,.25); }
@@ -245,7 +245,7 @@ body {
   .board .cell-module, .board .cell-topic { display: none; }
   .flap-row { grid-template-columns: 44px 1fr 80px; }
   .flap-meta { display: none; }
-  .heatmap { grid-template-columns: repeat(6, 1fr); }
+  .heat-cell { width: 11px; height: 11px; }
   .stats-strip { flex-wrap: wrap; }
   .stat-item { flex: 1 1 50%; border-bottom: 1px solid var(--border); }
   .header { flex-direction: column; gap: 6px; }

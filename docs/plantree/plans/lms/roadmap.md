@@ -13,8 +13,9 @@
 - 🟢 **Phase H**：调度层补强（新卡复习分离 / leech 管理）
 - 🟢 **Phase I**：数据层（JSON/markdown 导出 + SQLite 快照备份）
 - 🟢 **Phase J**：体验层（提醒红点 / streak / 会话时间轴 / 测验抽取）
+- 🟢 **工作台重构**：定位翻转（decision 004）+ 前端工作台（今天 / 学习库 / 回顾 + 快捷记录）+ `/api/timeline`
 
-> 落地选择对账：Phase A–F 见 [decision 002](decisions/002-lms-implementation-choices.md)，Phase G–J 见 [decision 003](decisions/003-gap-fill-implementation-choices.md)。
+> 落地选择对账：Phase A–F 见 [decision 002](decisions/002-lms-implementation-choices.md)，Phase G–J 见 [decision 003](decisions/003-gap-fill-implementation-choices.md)，工作台重构见 [decision 004](decisions/004-human-first-positioning.md)。
 
 ## Deferred
 

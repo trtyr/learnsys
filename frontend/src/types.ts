@@ -72,3 +72,6 @@ export interface HeatmapDay { date: string; count: number }
 export interface GoalProgress {
   goal_id: string; total_modules: number; mastered: number; percent: number;
 }
+export interface TimelineEvent {
+  at: string; kind: 'card' | 'review' | 'session'; summary: string;
+}

@@ -72,6 +72,31 @@ pub struct CardPatch {
     pub tags: Option<Vec<String>>,
     pub code_block: Option<String>,
     pub image_urls: Option<Vec<String>>,
+    /// 挂到模块：`Some("")` 脱离，`Some(id)` 挂到模块，`None` 不改。
+    pub module_id: Option<String>,
+}
+
+/// 目标编辑补丁。
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct GoalPatch {
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub success_criteria: Option<String>,
+}
+
+/// 路径编辑补丁。
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct PathwayPatch {
+    pub name: Option<String>,
+    pub methodology: Option<String>,
+    pub description: Option<String>,
+}
+
+/// 模块编辑补丁。
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct ModulePatch {
+    pub title: Option<String>,
+    pub description: Option<String>,
 }
 
 // ──────────────────────── Topic ─────────────────────────

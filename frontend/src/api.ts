@@ -1,4 +1,4 @@
-import type { Card, Goal, GoalProgress, HeatmapDay, LearnerProfile, Module, ModuleMastery, Pathway, PathwayModule, Resource, Session, Topic } from './types'
+import type { Card, Goal, GoalProgress, HeatmapDay, LearnerProfile, Module, ModuleMastery, Pathway, PathwayModule, Resource, Session, TimelineEvent, Topic } from './types'
 
 const BASE = '/api'
 
@@ -25,6 +25,10 @@ async function put<T>(path: string, body: unknown): Promise<T> {
   if (r.status === 204) return undefined as T
   return r.json()
 }
+async function del(path: string): Promise<void> {
+  const r = await fetch(`${BASE}${path}`, { method: 'DELETE' })
+  if (!r.ok) throw new Error(`${r.status}`)
+}
 
 export const api = {
   cards: {
@@ -32,7 +36,8 @@ export const api = {
     list: (topic?: string) => get<Card[]>(`/cards${topic ? `?topic=${encodeURIComponent(topic)}` : ''}`),
     get: (id: string) => get<Card>(`/cards/${id}`),
     review: (id: string, quality: number) => post<Card>(`/cards/${id}/review`, { quality }),
-    update: (id: string, patch: { front?: string; back?: string; topic?: string; tags?: string[]; code_block?: string; image_urls?: string[] }) =>
+    create: (body: { topic: string; front: string; back: string; tags?: string[] }) => post<Card>('/cards', body),
+    update: (id: string, patch: { front?: string; back?: string; topic?: string; tags?: string[]; code_block?: string; image_urls?: string[]; module_id?: string }) =>
       put<Card>(`/cards/${id}`, patch),
     search: (q: string, topic?: string) =>
       get<Card[]>(`/cards/search?q=${encodeURIComponent(q)}${topic ? `&topic=${encodeURIComponent(topic)}` : ''}`),
@@ -45,6 +50,7 @@ export const api = {
   },
   quiz: (n?: number, topic?: string) =>
     get<Card[]>(`/quiz?n=${n ?? 5}${topic ? `&topic=${encodeURIComponent(topic)}` : ''}`),
+  timeline: () => get<TimelineEvent[]>('/timeline'),
   topics: { list: () => get<Topic[]>('/topics') },
   dashboard: () => get<import('./types').Dashboard>('/dashboard'),
 
@@ -53,6 +59,9 @@ export const api = {
     create: (body: { title: string; description?: string; success_criteria?: string; topic?: string }) =>
       post<Goal>('/goals', body),
     progress: (id: string) => get<GoalProgress>(`/goals/${id}/progress`),
+    update: (id: string, patch: { title?: string; description?: string; success_criteria?: string }) =>
+      put<Goal>(`/goals/${id}`, patch),
+    delete: (id: string) => del(`/goals/${id}`),
   },
   pathways: {
     listByGoal: (goalId: string) => get<Pathway[]>(`/pathways?goal=${encodeURIComponent(goalId)}`),
@@ -63,12 +72,18 @@ export const api = {
       post<PathwayModule>(`/pathways/${pathwayId}/modules`, body),
     next: (pathwayId: string) =>
       get<{ module?: Module; position?: number; total?: number; done?: boolean }>(`/pathways/${pathwayId}/next`),
+    update: (id: string, patch: { name?: string; methodology?: string; description?: string }) =>
+      put<Pathway>(`/pathways/${id}`, patch),
+    delete: (id: string) => del(`/pathways/${id}`),
   },
   modules: {
     list: (topic?: string) => get<Module[]>(`/modules${topic ? `?topic=${encodeURIComponent(topic)}` : ''}`),
     create: (body: { title: string; topic?: string; description?: string }) => post<Module>('/modules', body),
     mastery: (id: string) => get<ModuleMastery>(`/modules/${id}/mastery`),
     updateStatus: (id: string, status: string) => put<void>(`/modules/${id}/status`, { status }),
+    update: (id: string, patch: { title?: string; description?: string }) => put<Module>(`/modules/${id}`, patch),
+    delete: (id: string) => del(`/modules/${id}`),
+    cards: (id: string) => get<Card[]>(`/modules/${id}/cards`),
   },
   resources: {
     list: (moduleId?: string) => get<Resource[]>(`/resources${moduleId ? `?module_id=${encodeURIComponent(moduleId)}` : ''}`),
