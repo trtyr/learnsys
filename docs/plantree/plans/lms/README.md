@@ -23,12 +23,16 @@
 
 | 文件 | 作用 |
 |------|------|
-| [roadmap.md](roadmap.md) | 演进阶段 |
+| [roadmap.md](roadmap.md) | 演进阶段（Phase A–F 已落地，G–J 补齐中） |
 | [topics/data-model.md](topics/data-model.md) | LMS 新实体设计（核心） |
 | [topics/pathway-design.md](topics/pathway-design.md) | 学习路径模型（"路子"） |
 | [topics/memory.md](topics/memory.md) | 温和双向记忆 |
-| [decisions/](decisions/) | 方向决策 |
-| [open-questions.md](open-questions.md) | 待决策 |
+| [topics/content-layer.md](topics/content-layer.md) | Phase G 内容层（编辑/搜索/标签/多模态） |
+| [topics/scheduling-hardening.md](topics/scheduling-hardening.md) | Phase H 调度层（新卡节奏/leech） |
+| [topics/data-export-backup.md](topics/data-export-backup.md) | Phase I 数据层（导出/备份） |
+| [topics/experience-and-quiz.md](topics/experience-and-quiz.md) | Phase J 体验层（提醒/streak/测验） |
+| [decisions/](decisions/) | 方向决策（001 方向 / 002 A–F / 003 G–J） |
+| [open-questions.md](open-questions.md) | 待决策（已全部收敛） |
 
 ## 与 core 的关系
 
@@ -38,5 +42,5 @@
 
 ## 当前状态
 
-- **Phase**：Planning（数据模型设计完成，待收敛 open-questions）
-- **Next**：收敛 [open-questions.md](open-questions.md) → 进 Phase A（schema 扩展）
+- **Phase**：🟢 Phase A–J 全部落地（核心 LMS + 四层补强 12 项）
+- **Next**：按需推进 Deferred（多用户 / 知识图谱 / apkg 等）

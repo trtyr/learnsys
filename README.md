@@ -67,7 +67,11 @@ cargo build --release -p learnsys-api
 | GET | `/api/cards/due` | 今日待复习 `?topic=` |
 | GET | `/api/cards/:id` | 取一张 |
 | DELETE | `/api/cards/:id` | 删卡 |
+| PUT | `/api/cards/:id` | 编辑卡片 `{front?, back?, topic?, tags?, code_block?, image_urls?}`（不改 SM-2） |
 | POST | `/api/cards/:id/review` | 记录复习 `{quality:0-5}` → SM-2 调度 |
+| GET | `/api/cards/search` | 搜索 `?q=` 匹配正面/背面/标签 |
+| GET | `/api/cards/new` | 今日新卡 `?limit=`（默认 `new_per_day`） |
+| GET | `/api/cards/leeches` | 顽固卡列表（EF<1.5 或连续失败 ≥4） |
 | POST | `/api/topics` | 建主题 |
 | GET | `/api/topics` | 列主题 |
 | GET | `/api/topics/:id` | 取一个 |
@@ -97,6 +101,16 @@ cargo build --release -p learnsys-api
 | GET | `/api/sessions` | 列会话 `?limit=` |
 | POST / GET | `/api/resources` | 建 / 列学习资源 |
 | GET / PUT | `/api/profile` | 读 / 写学习者画像（温和双向记忆） |
+
+### 设置 / 测验 / 导出 / 备份
+
+| Method | Path | 作用 |
+|--------|------|------|
+| GET / PUT | `/api/settings` | 读 / 写设置（`new_per_day` 每日新卡预算，默认 5） |
+| GET | `/api/quiz` | 测验抽取 `?n=&topic=`（随机抽到期复习卡） |
+| GET | `/api/export` | 全量 JSON 导出（所有实体） |
+| GET | `/api/export/markdown` | markdown 导出（migrate 兼容 frontmatter） |
+| POST | `/api/backup` | SQLite 一致性快照备份（`VACUUM INTO`） |
 
 `review` 是 SM-2 调度的唯一入口，原子更新卡 + 追加复习记录。
 

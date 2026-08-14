@@ -12,4 +12,5 @@ path = "src/main.rs"
 rusqlite.workspace = true
 chrono.workspace = true
 uuid.workspace = true
+serde_json.workspace = true
 learnsys-core = { path = "../learnsys-core" }

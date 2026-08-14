@@ -30,8 +30,7 @@ export default function App() {
         <h1>学习系统<span className="muted"> / 知识出发板</span></h1>
         <div className="header-stats">
           <span>{today}</span>
-          {dash.due_today > 0 && <span className="warn">◆ {dash.due_today} 待出发</span>}
-          {dash.due_soon > 0 && <span className="hot">◈ {dash.due_soon} 延误</span>}
+          <ReminderBadges dash={dash} />
         </div>
       </header>
 
@@ -57,6 +56,18 @@ export default function App() {
 
 function Shell({ children }: { children: ReactNode }) {
   return <div className="wrap">{children}</div>
+}
+
+// 提醒红点：待出发/延误/顽固卡/streak，按需亮起的徽标。
+export function ReminderBadges({ dash }: { dash: Dashboard }) {
+  return (
+    <>
+      {dash.due_today > 0 && <span className="warn">◆ {dash.due_today} 待出发</span>}
+      {dash.due_soon > 0 && <span className="hot">◈ {dash.due_soon} 延误</span>}
+      {dash.leech_count > 0 && <span className="hot">⚠ {dash.leech_count} 顽固卡</span>}
+      {dash.streak > 0 && <span className="green">🔥 {dash.streak} 天连续</span>}
+    </>
+  )
 }
 
 // ═════════════════ PlanView — 目标进度 + 路径模块 ═════════════════
@@ -259,14 +270,32 @@ function ModuleRow({ pm, idx, modules, onRefresh }: { pm: PathwayModule; idx: nu
   )
 }
 
-// ═══════════════ ReviewView — 翻卡复习 ═══════════════
+// ═══════════════ ReviewView — 翻卡复习 + 搜索 + 编辑 ═══════════════
 
 function ReviewView({ dash, onRefresh }: { dash: Dashboard; onRefresh: () => void }) {
   const [due, setDue] = useState<Card[]>([])
   const [flipped, setFlipped] = useState<string | null>(null)
+  const [q, setQ] = useState('')
+  const [results, setResults] = useState<Card[] | null>(null)
+  const [editing, setEditing] = useState<Card | null>(null)
+  const [newCards, setNewCards] = useState<Card[] | null>(null)
+  const [quiz, setQuiz] = useState<Card[] | null>(null)
+  const [budget, setBudget] = useState(5)
   const load = useCallback(() => { api.cards.due().then(setDue) }, [])
   useEffect(load, [load])
+  useEffect(() => { api.settings.get().then((s) => setBudget(s.new_per_day)).catch(() => {}) }, [])
   const today = new Date().toISOString().slice(0, 10)
+
+  const doSearch = (v: string) => {
+    setQ(v)
+    const s = v.trim()
+    if (!s) { setResults(null); return }
+    api.cards.search(s).then(setResults).catch(() => setResults([]))
+  }
+
+  const review = (c: Card, qq: number) => {
+    api.cards.review(c.id, qq).then(() => { setFlipped(null); load(); onRefresh() })
+  }
 
   return (
     <div>
@@ -277,6 +306,87 @@ function ReviewView({ dash, onRefresh }: { dash: Dashboard; onRefresh: () => voi
         <Stat label="平均 EF" value={dash.stats.avg_ef.toFixed(2)} />
       </div>
 
+      <div className="form-row" style={{ margin: '10px 0' }}>
+        <input placeholder="搜卡片（正面/背面/标签）…" value={q} onChange={(e) => doSearch(e.target.value)} />
+      </div>
+
+      <div className="form-row" style={{ margin: '0 0 10px', gap: 8 }}>
+        <button className="ghost-btn" onClick={() => {
+          if (newCards) setNewCards(null)
+          else api.cards.new().then(setNewCards).catch(() => setNewCards([]))
+        }}>{newCards ? '收起新卡' : `学新卡 (${dash.stats.new_cards})`}</button>
+        <button className="ghost-btn" onClick={() => {
+          if (quiz) setQuiz(null)
+          else api.quiz(5).then(setQuiz).catch(() => setQuiz([]))
+        }}>{quiz ? '收起测验' : '测验 5 题'}</button>
+        <input type="number" style={{ width: 64 }} value={budget}
+          onChange={(e) => setBudget(Number(e.target.value))}
+          onBlur={() => api.settings.put({ new_per_day: budget }).then(onRefresh)}
+          title="每日新卡预算" />
+      </div>
+
+      {newCards !== null && (
+        <div className="panel" style={{ marginBottom: 10 }}>
+          <div className="panel-header">新卡 · 今日 {newCards.length} 张</div>
+          <div className="panel-body" style={{ padding: 0 }}>
+            {newCards.length === 0 ? (
+              <div className="loading">◆ 今日新卡已学完。</div>
+            ) : (
+              <div className="board-list">
+                {newCards.map((c) => (
+                  <CardRow key={c.id} c={c} today={today} flipped={flipped === c.id}
+                    onFlip={() => setFlipped(flipped === c.id ? null : c.id)}
+                    onEdit={setEditing} onReview={(qq) => review(c, qq)} showStatus={false} />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {quiz !== null && (
+        <div className="panel" style={{ marginBottom: 10 }}>
+          <div className="panel-header">测验 · {quiz.length} 题（随机抽自到期复习卡）</div>
+          <div className="panel-body" style={{ padding: 0 }}>
+            {quiz.length === 0 ? (
+              <div className="loading">◆ 暂无到期复习卡。</div>
+            ) : (
+              <div className="board-list">
+                {quiz.map((c) => (
+                  <CardRow key={c.id} c={c} today={today} flipped={flipped === c.id}
+                    onFlip={() => setFlipped(flipped === c.id ? null : c.id)}
+                    onEdit={setEditing} onReview={(qq) => review(c, qq)} showStatus={false} />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {results !== null && (
+        <div className="panel" style={{ marginBottom: 10 }}>
+          <div className="panel-header">搜索结果 · {results.length} 张</div>
+          <div className="panel-body" style={{ padding: 0 }}>
+            {results.length === 0 ? (
+              <div className="loading">◆ 无匹配。</div>
+            ) : (
+              <div className="board-list">
+                {results.map((c) => (
+                  <CardRow key={c.id} c={c} today={today} flipped={flipped === c.id}
+                    onFlip={() => setFlipped(flipped === c.id ? null : c.id)}
+                    onEdit={setEditing} onReview={(qq) => review(c, qq)} showStatus={false} />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {editing && (
+        <CardEditor card={editing} onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); setResults(null); load(); onRefresh() }} />
+      )}
+
       <div className="panel">
         <div className="panel-header">出发板 · 今日待复习 {due.length} 班</div>
         <div className="panel-body" style={{ padding: 0 }}>
@@ -284,33 +394,11 @@ function ReviewView({ dash, onRefresh }: { dash: Dashboard; onRefresh: () => voi
             <div className="loading">◆ 今日无出发——全线清空。</div>
           ) : (
             <div className="board-list">
-              {due.map((c) => {
-                const days = Math.floor((Date.parse(today) - Date.parse(c.due)) / 86400000)
-                const cls = days > 1 ? 'extreme' : days > 0 ? 'overdue' : 'on-time'
-                const status = days > 1 ? `延误 ${days}天` : days > 0 ? '已延误' : '准时'
-                const tagCls = days > 1 ? 'red' : days > 0 ? 'amber' : 'green'
-                return (
-                  <div key={c.id} className={`flap-row ${cls}`} onClick={() => setFlipped(flipped === c.id ? null : c.id)}>
-                    <div className="flap-due">{c.due.slice(5)}</div>
-                    <div className="flap-main">
-                      <div className="flap-front">{flipped === c.id ? c.back : c.front}</div>
-                      {flipped === c.id && (
-                        <div className="flap-answer-actions" onClick={(e) => e.stopPropagation()}>
-                          <span style={{ fontSize: 11, color: 'var(--muted)' }}>翻面 · 自评质量分：</span>
-                          {[0, 1, 2, 3, 4, 5].map((q) => (
-                            <button key={q} className="rate-btn" onClick={async () => {
-                              await api.cards.review(c.id, q)
-                              setFlipped(null); load(); onRefresh()
-                            }}>{q}</button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flap-status"><span className={`tag ${tagCls}`}>{status}</span></div>
-                    <div className="flap-meta"><span className="tag muted">{c.topic}</span></div>
-                  </div>
-                )
-              })}
+              {due.map((c) => (
+                <CardRow key={c.id} c={c} today={today} flipped={flipped === c.id}
+                  onFlip={() => setFlipped(flipped === c.id ? null : c.id)}
+                  onEdit={setEditing} onReview={(qq) => review(c, qq)} showStatus />
+              ))}
             </div>
           )}
         </div>
@@ -318,6 +406,90 @@ function ReviewView({ dash, onRefresh }: { dash: Dashboard; onRefresh: () => voi
           <span>已出发 <b>{dash.stats.total_cards - dash.due_today}</b></span>
           <span>待出发 <b className="warn">{dash.due_today}</b></span>
           <span className="muted">点卡片翻面 · 打分后自动调度</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export function CardRow({ c, today, flipped, onFlip, onEdit, onReview, showStatus }: {
+  c: Card; today: string; flipped: boolean; onFlip: () => void;
+  onEdit: (c: Card) => void; onReview: (q: number) => void; showStatus: boolean;
+}) {
+  const days = Math.floor((Date.parse(today) - Date.parse(c.due)) / 86400000)
+  const cls = days > 1 ? 'extreme' : days > 0 ? 'overdue' : 'on-time'
+  const status = days > 1 ? `延误 ${days}天` : days > 0 ? '已延误' : '准时'
+  const tagCls = days > 1 ? 'red' : days > 0 ? 'amber' : 'green'
+  return (
+    <div className={`flap-row ${cls}`} onClick={onFlip}>
+      <div className="flap-due">{c.due.slice(5)}</div>
+      <div className="flap-main">
+        <div className="flap-front">{flipped ? c.back : c.front}</div>
+        {c.tags.length > 0 && (
+          <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+            {c.tags.map((t) => <span key={t} className="tag muted" style={{ fontSize: 10 }}>#{t}</span>)}
+          </div>
+        )}
+        {c.code_block && (
+          <pre style={{ marginTop: 6, padding: 6, background: '#111', borderRadius: 3, fontSize: 11, overflowX: 'auto', fontFamily: 'var(--font-flap)' }}>{c.code_block}</pre>
+        )}
+        {c.image_urls.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+            {c.image_urls.map((u) => (
+              <img key={u} src={u} alt="" style={{ maxHeight: 80, borderRadius: 3, border: '1px solid var(--border)' }} />
+            ))}
+          </div>
+        )}
+        {flipped && (
+          <div className="flap-answer-actions" onClick={(e) => e.stopPropagation()}>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>翻面 · 自评质量分：</span>
+            {[0, 1, 2, 3, 4, 5].map((qq) => (
+              <button key={qq} className="rate-btn" onClick={() => onReview(qq)}>{qq}</button>
+            ))}
+          </div>
+        )}
+      </div>
+      {showStatus && <div className="flap-status"><span className={`tag ${tagCls}`}>{status}</span></div>}
+      <div className="flap-meta" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span className="tag muted">{c.topic}</span>
+        <button className="ghost-btn" style={{ padding: '2px 6px', fontSize: 11 }}
+          onClick={(e) => { e.stopPropagation(); onEdit(c) }}>✎ 编辑</button>
+      </div>
+    </div>
+  )
+}
+
+export function CardEditor({ card, onClose, onSaved }: { card: Card; onClose: () => void; onSaved: () => void }) {
+  const [front, setFront] = useState(card.front)
+  const [back, setBack] = useState(card.back)
+  const [tags, setTags] = useState(card.tags.join(', '))
+  const [codeBlock, setCodeBlock] = useState(card.code_block ?? '')
+  const [imageUrls, setImageUrls] = useState(card.image_urls.join(', '))
+  return (
+    <div className="panel" style={{ marginBottom: 10, borderColor: 'var(--amber)' }}>
+      <div className="panel-header">编辑卡片 · {card.id.slice(-6)}</div>
+      <div className="panel-body form-col">
+        <label>正面</label>
+        <textarea rows={2} value={front} onChange={(e) => setFront(e.target.value)} />
+        <label>背面</label>
+        <textarea rows={2} value={back} onChange={(e) => setBack(e.target.value)} />
+        <label>标签（逗号分隔）</label>
+        <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="rust, 基础" />
+        <label>代码块（可选）</label>
+        <textarea rows={3} value={codeBlock} onChange={(e) => setCodeBlock(e.target.value)} placeholder="fn main() {}" style={{ fontFamily: 'var(--font-flap)', fontSize: 12 }} />
+        <label>图片 URL（逗号分隔）</label>
+        <input value={imageUrls} onChange={(e) => setImageUrls(e.target.value)} placeholder="https://…" />
+        <div className="form-row">
+          <button onClick={async () => {
+            await api.cards.update(card.id, {
+              front, back,
+              tags: tags.split(',').map((s) => s.trim()).filter(Boolean),
+              code_block: codeBlock,
+              image_urls: imageUrls.split(',').map((s) => s.trim()).filter(Boolean),
+            })
+            onSaved()
+          }}>保存</button>
+          <button className="ghost-btn" onClick={onClose}>取消</button>
         </div>
       </div>
     </div>
@@ -389,27 +561,33 @@ function ProgressView({ dash }: { dash: Dashboard }) {
       <div className="panel">
         <div className="panel-header">最近班次日志</div>
         <div className="panel-body" style={{ padding: 0 }}>
-          {sessions.length === 0 ? (
-            <div className="loading">暂无运行记录。</div>
-          ) : (
-            <ul className="card-list" style={{ padding: '0 16px' }}>
-              {sessions.map((s) => (
-                <li key={s.id} className="card-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 2 }}>
-                  <div style={{ display: 'flex', gap: 12, fontFamily: 'var(--font-flap)', fontSize: 11, color: 'var(--muted)' }}>
-                    <span>{new Date(s.started_at).toLocaleString('zh-CN')}</span>
-                    {s.ended_at && <span>▸ {new Date(s.ended_at).toLocaleTimeString('zh-CN')}</span>}
-                  </div>
-                  <div>{s.summary || '（无记录）'}</div>
-                  <div style={{ display: 'flex', gap: 16, fontFamily: 'var(--font-flap)', fontSize: 11, color: 'var(--muted)' }}>
-                    <span>新建 {s.new_cards}</span><span>复习 {s.reviewed}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <SessionTimeline sessions={sessions} />
         </div>
       </div>
     </div>
+  )
+}
+
+// 会话时间轴：起止时间 + summary + 新建/复习计数。
+export function SessionTimeline({ sessions }: { sessions: Session[] }) {
+  if (sessions.length === 0) {
+    return <div className="loading">暂无运行记录。</div>
+  }
+  return (
+    <ul className="card-list" style={{ padding: '0 16px' }}>
+      {sessions.map((s) => (
+        <li key={s.id} className="card-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 2 }}>
+          <div style={{ display: 'flex', gap: 12, fontFamily: 'var(--font-flap)', fontSize: 11, color: 'var(--muted)' }}>
+            <span>{new Date(s.started_at).toLocaleString('zh-CN')}</span>
+            {s.ended_at && <span>▸ {new Date(s.ended_at).toLocaleTimeString('zh-CN')}</span>}
+          </div>
+          <div>{s.summary || '（无记录）'}</div>
+          <div style={{ display: 'flex', gap: 16, fontFamily: 'var(--font-flap)', fontSize: 11, color: 'var(--muted)' }}>
+            <span>新建 {s.new_cards}</span><span>复习 {s.reviewed}</span>
+          </div>
+        </li>
+      ))}
+    </ul>
   )
 }
 

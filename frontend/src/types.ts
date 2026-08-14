@@ -4,6 +4,10 @@ export interface Card {
   id: string; topic: string; front: string; back: string;
   ef: number; interval: number; reps: number;
   due: string; created: string; updated: string;
+  module_id: string | null;
+  tags: string[];
+  code_block: string | null;
+  image_urls: string[];
 }
 
 export type TopicStatus = 'active' | 'completed' | 'paused'
@@ -15,10 +19,14 @@ export interface Topic {
 export interface TopicCount { topic: string; count: number }
 export interface Stats {
   total_cards: number; due_today: number; due_soon: number;
+  new_cards: number;
   avg_ef: number; by_topic: TopicCount[];
 }
 export interface Dashboard {
   due_today: number; due_soon: number;
+  leech_count: number;
+  streak: number;
+  studied_today: boolean;
   active_topics: Topic[]; stats: Stats;
 }
 

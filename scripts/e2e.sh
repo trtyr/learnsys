@@ -32,10 +32,11 @@ echo "  topics    : $(curl -sf "$B/api/topics" | python3 -c 'import sys,json;pri
 echo "  dashboard :"
 curl -sf "$B/api/dashboard" | python3 -m json.tool | sed 's/^/    /'
 
-step "5. review (SM-2 q=5)"
-CID=$(curl -sf "$B/api/cards/due" | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["id"])')
+step "5. review (SM-2 q=5) —— 从新卡队列取一张复习"
+CID=$(curl -sf "$B/api/cards/new" | python3 -c 'import sys,json;print(json.load(sys.stdin)[0]["id"])')
 curl -sf -X POST "$B/api/cards/$CID/review" -H 'Content-Type: application/json' -d '{"quality":5}' \
-  | python3 -m json.tool | sed 's/^/    /'
+  | python3 -c 'import sys,json; d=json.load(sys.stdin); print("    reps=",d["reps"],"interval=",d["interval"],"due=",d["due"])'
+echo "    复习后新卡队列剩余: $(curl -sf "$B/api/cards/new" | python3 -c 'import sys,json;print(len(json.load(sys.stdin)),"张")')"
 
 step "6. 前端构建"
 ( cd frontend && npm run build ) >/dev/null 2>&1 && echo "  dist ✓" || echo "  (跳过：npm 未就绪)"

@@ -15,7 +15,7 @@
 | Plan | Status | Current Phase | Last Landed | Next Target |
 |------|--------|---------------|-------------|-------------|
 | [core](plans/core/README.md) | 🟢 Done (MVP) | Phase 0–3 已交付 | commit 784f13d + 前端 | Phase 4 接入验证 |
-| [lms](plans/lms/README.md) | 🟡 Planning | 数据模型设计 | decision 001 | 收敛 open-questions → Phase A |
+| [lms](plans/lms/README.md) | 🟢 Done | Phase A–J 全落地 | decision 003 (Phase J) | Deferred 项按需 |
 
 ## 怎么读这棵树
 
@@ -31,5 +31,4 @@
 ## 当前模式
 
 - `core`：`execute-ready`（MVP Phase 0–3 已交付，见 [core decision 003](plans/core/decisions/003-mvp-shipped.md)）
-- `lms`：`shape-plan`（方向重定义为 AI 用的 LMS，数据模型已设计，待收敛 open-questions）
-  — 见 [lms decision 001](plans/lms/decisions/001-lms-direction.md)
+- `lms`：`execute-ready`（Phase A–J 全落地，OQ 全收敛，见 [decision 003](plans/lms/decisions/003-gap-fill-implementation-choices.md)）

@@ -7,8 +7,8 @@ use chrono::{DateTime, NaiveDate, Utc};
 use rusqlite::{params, Connection, Row};
 
 use crate::entity::{
-    Card, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway, PathwayModule, Resource,
-    ReviewLog, Session, Topic, TopicStatus,
+    Card, CardPatch, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway,
+    PathwayModule, Resource, ReviewLog, Session, Topic, TopicStatus,
 };
 use crate::sm2;
 
@@ -32,6 +32,11 @@ fn parse_date(s: &str) -> Result<NaiveDate> {
 
 fn to_date_str(d: NaiveDate) -> String {
     d.format("%Y-%m-%d").to_string()
+}
+
+/// 把 JSON 数组列解析为字符串列表，失败返回空列表。
+fn parse_json_list(s: &str) -> Vec<String> {
+    serde_json::from_str(s).unwrap_or_default()
 }
 
 /// 兼容 RFC3339（我们写入）与 SQLite datetime（列默认值）。
@@ -63,6 +68,8 @@ fn card_from_row(r: &Row) -> rusqlite::Result<Card> {
     let due: String = r.get("due")?;
     let created: String = r.get("created")?;
     let updated: String = r.get("updated")?;
+    let tags: String = r.get("tags")?;
+    let image_urls: String = r.get("image_urls")?;
     Ok(Card {
         id: r.get("id")?,
         topic: r.get("topic")?,
@@ -75,6 +82,9 @@ fn card_from_row(r: &Row) -> rusqlite::Result<Card> {
         created: conv(parse_date(&created))?,
         updated: conv(parse_dt(&updated))?,
         module_id: r.get("module_id")?,
+        tags: parse_json_list(&tags),
+        code_block: r.get("code_block")?,
+        image_urls: parse_json_list(&image_urls),
     })
 }
 
@@ -112,12 +122,15 @@ fn log_from_row(r: &Row) -> rusqlite::Result<ReviewLog> {
 pub fn insert_card(conn: &Connection, c: &Card) -> Result<()> {
     conn.execute(
         "INSERT OR REPLACE INTO cards
-         (id, topic, module_id, front, back, ef, interval, reps, due, created, updated)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+         (id, topic, module_id, tags, code_block, image_urls, front, back, ef, interval, reps, due, created, updated)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         params![
             c.id,
             c.topic,
             c.module_id,
+            serde_json::to_string(&c.tags).unwrap_or_else(|_| String::from("[]")),
+            c.code_block,
+            serde_json::to_string(&c.image_urls).unwrap_or_else(|_| String::from("[]")),
             c.front,
             c.back,
             c.ef,
@@ -160,21 +173,114 @@ pub fn list_cards(conn: &Connection, topic: Option<&str>) -> Result<Vec<Card>> {
     Ok(cards)
 }
 
-/// 到期卡片（due <= today）。`topic` 为主题**名**。
+/// 到期复习卡片（reps>0 且 due<=today）。`topic` 为主题**名**。新卡走 [`new_cards`]。
 pub fn due_cards(conn: &Connection, today: NaiveDate, topic: Option<&str>) -> Result<Vec<Card>> {
     let today_s = to_date_str(today);
     let cards = match topic {
         Some(name) => {
             let mut stmt = conn.prepare(
                 "SELECT c.* FROM cards c JOIN topics t ON c.topic = t.id
-                 WHERE c.due <= ? AND t.name = ? ORDER BY c.due",
+                 WHERE c.reps > 0 AND c.due <= ? AND t.name = ? ORDER BY c.due",
             )?;
             let rows = stmt.query_map(params![today_s, name], card_from_row)?;
             rows.collect::<rusqlite::Result<Vec<_>>>()?
         }
         None => {
-            let mut stmt = conn.prepare("SELECT * FROM cards WHERE due <= ? ORDER BY due")?;
+            let mut stmt =
+                conn.prepare("SELECT * FROM cards WHERE reps > 0 AND due <= ? ORDER BY due")?;
             let rows = stmt.query_map(params![today_s], card_from_row)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        }
+    };
+    Ok(cards)
+}
+
+/// 今天已消耗的新卡预算 = 今天首次复习（is_new=1）的新卡数。
+pub fn new_introduced_today(conn: &Connection, today: NaiveDate) -> i64 {
+    let s = to_date_str(today);
+    conn.query_row(
+        "SELECT count(*) FROM review_logs WHERE is_new = 1 AND substr(reviewed_at, 1, 10) = ?",
+        params![s],
+        |r| r.get(0),
+    )
+    .unwrap_or(0)
+}
+
+/// 新卡（从未复习，reps=0 且今天到期）——返回**剩余每日预算**张（new_per_day - 今天已学新卡数）。
+pub fn new_cards(conn: &Connection, today: NaiveDate) -> Result<Vec<Card>> {
+    let remaining = (new_per_day(conn) - new_introduced_today(conn, today)).max(0);
+    let today_s = to_date_str(today);
+    let mut stmt = conn
+        .prepare("SELECT * FROM cards WHERE reps = 0 AND due <= ? ORDER BY created, id LIMIT ?")?;
+    let rows = stmt.query_map(params![today_s, remaining], card_from_row)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+/// 顽固卡（leech）：EF < 1.5，或最近 4 次复习全失败（quality < 3）。
+/// 只标记不处置——识别是平台的事，处置归 AI/人。
+pub fn leech_cards(conn: &Connection) -> Result<Vec<Card>> {
+    let mut leeches = Vec::new();
+    for c in list_cards(conn, None)? {
+        if c.ef < 1.5 {
+            leeches.push(c);
+            continue;
+        }
+        let logs = list_logs_by_card(conn, &c.id)?;
+        let recent: Vec<i64> = logs.iter().take(4).map(|l| l.quality).collect();
+        if recent.len() >= 4 && recent.iter().all(|&q| q < 3) {
+            leeches.push(c);
+        }
+    }
+    Ok(leeches)
+}
+
+fn has_review_on(conn: &Connection, d: NaiveDate) -> bool {
+    let s = to_date_str(d);
+    conn.query_row(
+        "SELECT count(*) FROM review_logs WHERE substr(reviewed_at, 1, 10) = ?",
+        params![s],
+        |r| r.get::<_, i64>(0),
+    )
+    .map(|n| n > 0)
+    .unwrap_or(false)
+}
+
+/// 连续学习天数（streak）。今天没学则从昨天起算，不被"今天还没学"打断。
+pub fn streak(conn: &Connection, today: NaiveDate) -> i64 {
+    let mut d = today;
+    if !has_review_on(conn, d) {
+        d -= chrono::Duration::days(1);
+    }
+    let mut days = 0;
+    while has_review_on(conn, d) {
+        days += 1;
+        d -= chrono::Duration::days(1);
+    }
+    days
+}
+
+/// 测验抽取：从到期复习卡里随机抽 `n` 张（可选按主题名过滤）。
+pub fn quiz_cards(
+    conn: &Connection,
+    today: NaiveDate,
+    n: i64,
+    topic: Option<&str>,
+) -> Result<Vec<Card>> {
+    let today_s = to_date_str(today);
+    let cards = match topic {
+        Some(name) => {
+            let mut stmt = conn.prepare(
+                "SELECT c.* FROM cards c JOIN topics t ON c.topic = t.id
+                 WHERE c.reps > 0 AND c.due <= ? AND t.name = ? ORDER BY RANDOM() LIMIT ?",
+            )?;
+            let rows = stmt.query_map(params![today_s, name, n], card_from_row)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        }
+        None => {
+            let mut stmt = conn.prepare(
+                "SELECT * FROM cards WHERE reps > 0 AND due <= ? ORDER BY RANDOM() LIMIT ?",
+            )?;
+            let rows = stmt.query_map(params![today_s, n], card_from_row)?;
             rows.collect::<rusqlite::Result<Vec<_>>>()?
         }
     };
@@ -200,6 +306,7 @@ pub fn review_card(conn: &Connection, id: &str, quality: i64, today: NaiveDate) 
         )
         .map_err(notfound("card", id))?;
 
+    let is_new = card.reps == 0;
     let s = sm2::sm2(card.ef, card.interval, card.reps, quality, today);
     let now = Utc::now();
     tx.execute(
@@ -214,14 +321,15 @@ pub fn review_card(conn: &Connection, id: &str, quality: i64, today: NaiveDate) 
         ],
     )?;
     tx.execute(
-        "INSERT INTO review_logs (card_id, quality, reviewed_at, prev_due, new_due)
-         VALUES (?,?,?,?,?)",
+        "INSERT INTO review_logs (card_id, quality, reviewed_at, prev_due, new_due, is_new)
+         VALUES (?,?,?,?,?,?)",
         params![
             id,
             quality,
             now.to_rfc3339(),
             to_date_str(card.due),
-            to_date_str(s.due)
+            to_date_str(s.due),
+            is_new
         ],
     )?;
     tx.commit()?;
@@ -232,6 +340,73 @@ pub fn review_card(conn: &Connection, id: &str, quality: i64, today: NaiveDate) 
     card.due = s.due;
     card.updated = now;
     Ok(card)
+}
+
+/// 编辑卡片：应用补丁的非 `None` 字段，不触碰 SM-2 调度状态。
+pub fn update_card(conn: &Connection, id: &str, patch: &CardPatch) -> Result<Card> {
+    let mut card = get_card(conn, id)?;
+    if let Some(front) = &patch.front {
+        card.front = front.clone();
+    }
+    if let Some(back) = &patch.back {
+        card.back = back.clone();
+    }
+    if let Some(topic) = &patch.topic {
+        card.topic = topic.clone();
+    }
+    if let Some(tags) = &patch.tags {
+        card.tags = tags.clone();
+    }
+    if let Some(code_block) = &patch.code_block {
+        card.code_block = if code_block.is_empty() {
+            None
+        } else {
+            Some(code_block.clone())
+        };
+    }
+    if let Some(image_urls) = &patch.image_urls {
+        card.image_urls = image_urls.clone();
+    }
+    card.updated = Utc::now();
+    conn.execute(
+        "UPDATE cards SET topic=?, tags=?, code_block=?, image_urls=?, front=?, back=?, updated=? WHERE id=?",
+        params![
+            card.topic,
+            serde_json::to_string(&card.tags).unwrap_or_else(|_| String::from("[]")),
+            card.code_block,
+            serde_json::to_string(&card.image_urls).unwrap_or_else(|_| String::from("[]")),
+            card.front,
+            card.back,
+            card.updated.to_rfc3339(),
+            id,
+        ],
+    )?;
+    Ok(card)
+}
+
+/// 搜索卡片：LIKE 子串匹配 front/back/tags，可选按主题名过滤。
+pub fn search_cards(conn: &Connection, q: &str, topic: Option<&str>) -> Result<Vec<Card>> {
+    let pattern = format!("%{q}%");
+    let cards = match topic {
+        Some(name) => {
+            let mut stmt = conn.prepare(
+                "SELECT c.* FROM cards c JOIN topics t ON c.topic = t.id
+                 WHERE (c.front LIKE ? OR c.back LIKE ? OR c.tags LIKE ?) AND t.name = ?
+                 ORDER BY c.due",
+            )?;
+            let rows = stmt.query_map(params![pattern, pattern, pattern, name], card_from_row)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        }
+        None => {
+            let mut stmt = conn.prepare(
+                "SELECT * FROM cards WHERE front LIKE ? OR back LIKE ? OR tags LIKE ?
+                 ORDER BY due",
+            )?;
+            let rows = stmt.query_map(params![pattern, pattern, pattern], card_from_row)?;
+            rows.collect::<rusqlite::Result<Vec<_>>>()?
+        }
+    };
+    Ok(cards)
 }
 
 // ──────────────────── Topic ────────────────────
@@ -287,6 +462,33 @@ pub fn list_logs_by_card(conn: &Connection, card_id: &str) -> Result<Vec<ReviewL
         conn.prepare("SELECT * FROM review_logs WHERE card_id = ? ORDER BY reviewed_at DESC")?;
     let rows = stmt.query_map(params![card_id], log_from_row)?;
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
+// ──────────────────── Settings ────────────────────
+
+pub fn get_setting(conn: &Connection, key: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT value FROM settings WHERE key = ?",
+        params![key],
+        |r| r.get(0),
+    )
+    .ok()
+}
+
+pub fn set_setting(conn: &Connection, key: &str, value: &str) -> Result<()> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        params![key, value],
+    )?;
+    Ok(())
+}
+
+/// 每日新卡预算（默认 5）。
+pub fn new_per_day(conn: &Connection) -> i64 {
+    get_setting(conn, "new_per_day")
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5)
 }
 
 // ───────────────────── Goal ─────────────────────
@@ -781,7 +983,8 @@ pub struct TopicCount {
 pub struct Stats {
     pub total_cards: i64,
     pub due_today: i64,
-    pub due_soon: i64, // 明后天到期（预警）
+    pub due_soon: i64,  // 明后天到期（预警）
+    pub new_cards: i64, // 今日可学新卡（reps=0）
     pub avg_ef: f64,
     pub by_topic: Vec<TopicCount>,
 }
@@ -790,6 +993,9 @@ pub struct Stats {
 pub struct Dashboard {
     pub due_today: i64,
     pub due_soon: i64,
+    pub leech_count: i64,
+    pub streak: i64,
+    pub studied_today: bool,
     pub active_topics: Vec<Topic>,
     pub stats: Stats,
 }
@@ -799,7 +1005,12 @@ pub fn stats(conn: &Connection, today: NaiveDate) -> Result<Stats> {
     let soon_s = to_date_str(today + chrono::Duration::days(2));
     let total: i64 = conn.query_row("SELECT count(*) FROM cards", [], |r| r.get(0))?;
     let due_today: i64 = conn.query_row(
-        "SELECT count(*) FROM cards WHERE due <= ?",
+        "SELECT count(*) FROM cards WHERE reps > 0 AND due <= ?",
+        params![today_s],
+        |r| r.get(0),
+    )?;
+    let new_cards: i64 = conn.query_row(
+        "SELECT count(*) FROM cards WHERE reps = 0 AND due <= ?",
         params![today_s],
         |r| r.get(0),
     )?;
@@ -825,6 +1036,7 @@ pub fn stats(conn: &Connection, today: NaiveDate) -> Result<Stats> {
         total_cards: total,
         due_today,
         due_soon,
+        new_cards,
         avg_ef,
         by_topic,
     })
@@ -836,12 +1048,116 @@ pub fn dashboard(conn: &Connection, today: NaiveDate) -> Result<Dashboard> {
         .into_iter()
         .filter(|t| matches!(t.status, TopicStatus::Active))
         .collect();
+    let leech_count = leech_cards(conn)?.len() as i64;
+    let streak = streak(conn, today);
+    let studied_today = has_review_on(conn, today);
     Ok(Dashboard {
         due_today: stats.due_today,
         due_soon: stats.due_soon,
+        leech_count,
+        streak,
+        studied_today,
         active_topics,
         stats,
     })
+}
+
+// ──────────────────── Export / Backup ────────────────────
+
+#[derive(Debug, serde::Serialize)]
+pub struct Export {
+    pub topics: Vec<Topic>,
+    pub cards: Vec<Card>,
+    pub review_logs: Vec<ReviewLog>,
+    pub goals: Vec<Goal>,
+    pub pathways: Vec<Pathway>,
+    pub modules: Vec<Module>,
+    pub pathway_modules: Vec<PathwayModule>,
+    pub sessions: Vec<Session>,
+    pub resources: Vec<Resource>,
+    pub profile: Option<LearnerProfile>,
+}
+
+/// 全量导出（JSON 用）。所有实体一次性拉出，无 LIMIT 截断。
+pub fn export_all(conn: &Connection) -> Result<Export> {
+    let pathways = {
+        let mut stmt = conn.prepare("SELECT * FROM pathways ORDER BY created")?;
+        let rows = stmt.query_map([], pathway_from_row)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    let pathway_modules = {
+        let mut stmt =
+            conn.prepare("SELECT * FROM pathway_modules ORDER BY pathway_id, sort_order")?;
+        let rows = stmt.query_map([], pm_from_row)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    let review_logs = {
+        let mut stmt = conn.prepare("SELECT * FROM review_logs ORDER BY reviewed_at")?;
+        let rows = stmt.query_map([], log_from_row)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    let resources = {
+        let mut stmt = conn.prepare("SELECT * FROM resources ORDER BY created")?;
+        let rows = stmt.query_map([], resource_from_row)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    Ok(Export {
+        topics: list_topics(conn)?,
+        cards: list_cards(conn, None)?,
+        review_logs,
+        goals: list_goals(conn)?,
+        pathways,
+        modules: list_modules(conn, None)?,
+        pathway_modules,
+        sessions: list_sessions(conn, 100_000)?,
+        resources,
+        profile: get_profile(conn).ok(),
+    })
+}
+
+/// markdown 聚合导出：卡片按主题分组，每张卡是 migrate 兼容的 frontmatter 块。
+pub fn export_markdown(conn: &Connection) -> Result<String> {
+    let cards = list_cards(conn, None)?;
+    let topics = list_topics(conn)?;
+    let name_of = |id: &str| {
+        topics
+            .iter()
+            .find(|t| t.id == id)
+            .map(|t| t.name.clone())
+            .unwrap_or_else(|| id.to_string())
+    };
+    let mut by_topic: std::collections::BTreeMap<String, Vec<Card>> =
+        std::collections::BTreeMap::new();
+    for c in cards {
+        by_topic.entry(name_of(&c.topic)).or_default().push(c);
+    }
+    let mut out = format!("# learnsys 导出 · {}\n\n", Utc::now().date_naive());
+    for (topic, cards) in by_topic {
+        out.push_str(&format!("## {topic}\n\n"));
+        for c in cards {
+            out.push_str(&format!(
+                "---\nid: {}\nef: {}\ninterval: {}\nreps: {}\ndue: {}\ncreated: {}\ntags: {}\ncode_block: {}\nimage_urls: {}\n---\n{}\n---\n{}\n\n",
+                c.id,
+                c.ef,
+                c.interval,
+                c.reps,
+                c.due,
+                c.created,
+                serde_json::to_string(&c.tags).unwrap_or_else(|_| String::from("[]")),
+                serde_json::to_string(&c.code_block).unwrap_or_else(|_| String::from("null")),
+                serde_json::to_string(&c.image_urls).unwrap_or_else(|_| String::from("[]")),
+                c.front,
+                c.back
+            ));
+        }
+    }
+    Ok(out)
+}
+
+/// 一致性快照备份（`VACUUM INTO` 生成独立库文件，可在线备份）。
+pub fn backup(conn: &Connection, dest: &str) -> Result<()> {
+    conn.execute("VACUUM INTO ?", params![dest])?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -880,13 +1196,105 @@ mod tests {
 
         assert_eq!(get_card(&c, &card.id).unwrap().front, "q1");
         assert_eq!(list_cards(&c, Some("rust")).unwrap().len(), 1);
+        // 新卡（reps=0）进 new 队列，不进 due 队列
+        assert_eq!(new_cards(&c, Utc::now().date_naive()).unwrap().len(), 1);
+        assert_eq!(
+            due_cards(&c, Utc::now().date_naive(), None).unwrap().len(),
+            0
+        );
+
+        delete_card(&c, &card.id).unwrap();
+        assert!(get_card(&c, &card.id).is_err());
+    }
+
+    #[test]
+    fn new_and_review_separated_after_review() {
+        let c = mem();
+        let t = seed_topic(&c);
+
+        // 新卡：reps=0 → new 队列
+        let newc = Card::new(t.id.clone(), "new", "a");
+        insert_card(&c, &newc).unwrap();
+
+        // 复习卡：reps>0 且 due<=today → due 队列
+        let mut rev = Card::new(t.id.clone(), "rev", "a");
+        rev.reps = 3;
+        rev.interval = 5;
+        rev.due = Utc::now().date_naive();
+        insert_card(&c, &rev).unwrap();
+
+        assert_eq!(new_cards(&c, Utc::now().date_naive()).unwrap().len(), 1);
         assert_eq!(
             due_cards(&c, Utc::now().date_naive(), None).unwrap().len(),
             1
         );
 
-        delete_card(&c, &card.id).unwrap();
-        assert!(get_card(&c, &card.id).is_err());
+        // 复习一次后，新卡离开 new 队列（reps 0→1，due 推到明天）
+        review_card(&c, &newc.id, 5, Utc::now().date_naive()).unwrap();
+        assert_eq!(new_cards(&c, Utc::now().date_naive()).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn new_card_daily_budget_consumed_by_review() {
+        let c = mem();
+        let t = seed_topic(&c);
+        set_setting(&c, "new_per_day", "2").unwrap();
+
+        let mut ids = Vec::new();
+        for i in 0..5 {
+            let card = Card::new(t.id.clone(), format!("q{i}"), "a");
+            ids.push(card.id.clone());
+            insert_card(&c, &card).unwrap();
+        }
+        let today = Utc::now().date_naive();
+
+        // 初始返回预算张（2）；重复调用（未复习）预算不消耗
+        assert_eq!(new_cards(&c, today).unwrap().len(), 2);
+        assert_eq!(new_cards(&c, today).unwrap().len(), 2);
+
+        // 复习 1 张新卡 → 剩余预算 1
+        review_card(&c, &ids[0], 4, today).unwrap();
+        assert_eq!(new_introduced_today(&c, today), 1);
+        assert_eq!(new_cards(&c, today).unwrap().len(), 1);
+
+        // 再复习 1 张 → 预算耗尽
+        review_card(&c, &ids[1], 4, today).unwrap();
+        assert_eq!(new_introduced_today(&c, today), 2);
+        assert_eq!(new_cards(&c, today).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn leech_detection_by_low_ef_and_repeated_failures() {
+        let c = mem();
+        let t = seed_topic(&c);
+
+        // 低 EF 卡
+        let mut low = Card::new(t.id.clone(), "low ef", "a");
+        low.ef = 1.4;
+        insert_card(&c, &low).unwrap();
+
+        // 高 EF 但连续 4 次失败（q=2 每次 -0.32，4 次后 EF 1.52 >= 1.5，仍触发）
+        let mut failing = Card::new(t.id.clone(), "failing", "a");
+        failing.ef = 2.8;
+        insert_card(&c, &failing).unwrap();
+        for _ in 0..4 {
+            review_card(&c, &failing.id, 2, Utc::now().date_naive()).unwrap();
+        }
+
+        let leeches = leech_cards(&c).unwrap();
+        assert_eq!(leeches.len(), 2);
+        assert!(leeches.iter().any(|x| x.id == low.id));
+        assert!(leeches.iter().any(|x| x.id == failing.id));
+    }
+
+    #[test]
+    fn settings_roundtrip_and_default() {
+        let c = mem();
+        assert_eq!(new_per_day(&c), 5);
+        set_setting(&c, "new_per_day", "8").unwrap();
+        assert_eq!(new_per_day(&c), 8);
+        set_setting(&c, "new_per_day", "3").unwrap();
+        assert_eq!(new_per_day(&c), 3);
     }
 
     #[test]
@@ -912,5 +1320,146 @@ mod tests {
     fn missing_card_is_not_found() {
         let c = mem();
         assert!(matches!(get_card(&c, "nope"), Err(RepoError::NotFound(_))));
+    }
+
+    #[test]
+    fn card_update_preserves_sm2_and_edits_content() {
+        let c = mem();
+        let t = seed_topic(&c);
+        let card = Card::new(t.id.clone(), "q", "a");
+        insert_card(&c, &card).unwrap();
+
+        // 先复习一次，让 SM-2 状态脱离默认
+        let after = review_card(&c, &card.id, 5, Utc::now().date_naive()).unwrap();
+        assert_eq!(after.reps, 1);
+
+        // 编辑 front + tags + code_block，不重置 SM-2
+        let patch = CardPatch {
+            front: Some("q2".into()),
+            tags: Some(vec!["borrow".into(), "rust".into()]),
+            code_block: Some("let x = 1;".into()),
+            ..Default::default()
+        };
+        let updated = update_card(&c, &card.id, &patch).unwrap();
+        assert_eq!(updated.front, "q2");
+        assert_eq!(updated.tags, vec!["borrow", "rust"]);
+        assert_eq!(updated.code_block.as_deref(), Some("let x = 1;"));
+        assert_eq!(updated.reps, 1, "编辑不改 SM-2");
+        assert_eq!(updated.ef, after.ef);
+
+        // 空串清空 code_block
+        let clear = CardPatch {
+            code_block: Some(String::new()),
+            ..Default::default()
+        };
+        let updated2 = update_card(&c, &card.id, &clear).unwrap();
+        assert_eq!(updated2.code_block, None);
+    }
+
+    #[test]
+    fn search_matches_front_back_and_tags() {
+        let c = mem();
+        let t = seed_topic(&c);
+        let mut c1 = Card::new(t.id.clone(), "所有权是什么", "独占");
+        c1.tags = vec!["rust".into(), "基础".into()];
+        c1.due = Utc::now().date_naive();
+        insert_card(&c, &c1).unwrap();
+        let mut c2 = Card::new(t.id.clone(), "borrow checker", "编译期检查");
+        c2.due = Utc::now().date_naive();
+        insert_card(&c, &c2).unwrap();
+
+        assert_eq!(search_cards(&c, "borrow", None).unwrap().len(), 1);
+        assert_eq!(search_cards(&c, "独占", None).unwrap().len(), 1);
+        assert_eq!(search_cards(&c, "基础", None).unwrap().len(), 1);
+        assert_eq!(search_cards(&c, "不存在的词", None).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn export_all_captures_everything() {
+        let c = mem();
+        let t = seed_topic(&c);
+        let card = Card::new(t.id.clone(), "q", "a");
+        insert_card(&c, &card).unwrap();
+        let e = export_all(&c).unwrap();
+        assert_eq!(e.topics.len(), 1);
+        assert_eq!(e.cards.len(), 1);
+        assert_eq!(e.review_logs.len(), 0);
+        assert_eq!(e.goals.len(), 0);
+    }
+
+    #[test]
+    fn export_markdown_contains_content_fields() {
+        let c = mem();
+        let t = seed_topic(&c);
+        let mut card = Card::new(t.id.clone(), "什么是所有权", "独占");
+        card.tags = vec!["rust".into(), "基础".into()];
+        card.code_block = Some("let x = 1;".into());
+        card.image_urls = vec!["https://example.com/a.png".into()];
+        insert_card(&c, &card).unwrap();
+        let md = export_markdown(&c).unwrap();
+        assert!(md.contains("## rust"));
+        assert!(md.contains("什么是所有权"));
+        assert!(md.contains("独占"));
+        assert!(md.contains("\"rust\""));
+        assert!(md.contains("\"let x = 1;\""));
+        assert!(md.contains("https://example.com/a.png"));
+    }
+
+    #[test]
+    fn backup_restores_card() {
+        let dir = std::env::temp_dir().join(format!("learnsys-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("main.db");
+        let conn = Connection::open(&db_path).unwrap();
+        schema::init(&conn).unwrap();
+        let t = Topic::new("rust");
+        upsert_topic(&conn, &t).unwrap();
+        let card = Card::new(t.id.clone(), "q", "a");
+        insert_card(&conn, &card).unwrap();
+
+        let backup_path = dir.join("backup.db");
+        backup(&conn, backup_path.to_str().unwrap()).unwrap();
+
+        let bconn = Connection::open(&backup_path).unwrap();
+        assert_eq!(get_card(&bconn, &card.id).unwrap().front, "q");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn quiz_returns_at_most_n() {
+        let c = mem();
+        let t = seed_topic(&c);
+        for i in 0..6 {
+            let mut card = Card::new(t.id.clone(), format!("q{i}"), "a");
+            card.reps = 1;
+            card.due = Utc::now().date_naive();
+            insert_card(&c, &card).unwrap();
+        }
+        assert_eq!(
+            quiz_cards(&c, Utc::now().date_naive(), 3, None)
+                .unwrap()
+                .len(),
+            3
+        );
+    }
+
+    #[test]
+    fn streak_counts_consecutive_days() {
+        let c = mem();
+        let t = seed_topic(&c);
+        let card = Card::new(t.id.clone(), "q", "a");
+        insert_card(&c, &card).unwrap();
+
+        let today = Utc::now().date_naive();
+        for i in 0..3 {
+            let d = to_date_str(today - chrono::Duration::days(i));
+            c.execute(
+                "INSERT INTO review_logs (card_id, quality, reviewed_at, new_due) VALUES (?,?,?,?)",
+                params![card.id, 5, format!("{d}T10:00:00+00:00"), d],
+            )
+            .unwrap();
+        }
+        assert_eq!(streak(&c, today), 3);
+        assert!(has_review_on(&c, today));
     }
 }

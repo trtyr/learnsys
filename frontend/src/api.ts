@@ -32,7 +32,19 @@ export const api = {
     list: (topic?: string) => get<Card[]>(`/cards${topic ? `?topic=${encodeURIComponent(topic)}` : ''}`),
     get: (id: string) => get<Card>(`/cards/${id}`),
     review: (id: string, quality: number) => post<Card>(`/cards/${id}/review`, { quality }),
+    update: (id: string, patch: { front?: string; back?: string; topic?: string; tags?: string[]; code_block?: string; image_urls?: string[] }) =>
+      put<Card>(`/cards/${id}`, patch),
+    search: (q: string, topic?: string) =>
+      get<Card[]>(`/cards/search?q=${encodeURIComponent(q)}${topic ? `&topic=${encodeURIComponent(topic)}` : ''}`),
+    new: (limit?: number) => get<Card[]>(`/cards/new${limit ? `?limit=${limit}` : ''}`),
+    leeches: () => get<Card[]>('/cards/leeches'),
   },
+  settings: {
+    get: () => get<{ new_per_day: number }>('/settings'),
+    put: (body: { new_per_day?: number }) => put<void>('/settings', body),
+  },
+  quiz: (n?: number, topic?: string) =>
+    get<Card[]>(`/quiz?n=${n ?? 5}${topic ? `&topic=${encodeURIComponent(topic)}` : ''}`),
   topics: { list: () => get<Topic[]>('/topics') },
   dashboard: () => get<import('./types').Dashboard>('/dashboard'),
 

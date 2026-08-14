@@ -14,7 +14,7 @@ headless 学习数据平台：**确定性的归平台**（SM-2 调度、统计�
 | 领域层 | `learnsys-core`（无 HTTP/IO） | `crates/learnsys-core` |
 | 服务层 | `learnsys-api`（axum 0.7） | `crates/learnsys-api` |
 | 迁移工具 | `learnsys-migrate`（markdown → SQLite） | `crates/learnsys-migrate` |
-| 前端 | React 18 + Vite 5 + TS（只读看板） | `frontend/` |
+| 前端 | React 18 + Vite 7 + TS（只读看板） | `frontend/` |
 | 存储 | SQLite（rusqlite bundled） | 运行时文件，`RECALL_DB` 覆盖路径 |
 
 ## 规范命令（已在本机验证）
@@ -22,7 +22,7 @@ headless 学习数据平台：**确定性的归平台**（SM-2 调度、统计�
 ```bash
 # 后端
 cargo build --workspace
-cargo test --workspace          # 17 用例，core: entity/schema/sm2/repo
+cargo test --workspace          # 30 用例，core: entity/schema/sm2/repo + migrate 回导
 cargo clippy --workspace --all-targets
 cargo fmt --check
 
@@ -44,7 +44,7 @@ CI 在 [.github/workflows/ci.yml](.github/workflows/ci.yml)，push 到 `master` 
 
 依赖方向严格单向：`api → core`、`migrate → core`；`frontend → 后端` 只走 REST，绝不直接碰 SQLite。
 
-- `crates/learnsys-core/src/`：`entity`（实体类型）、`sm2`（调度算法）、`repo`（仓储 + 聚合）、`schema`（DDL + 版本迁移）、`db`（连接/路径）。
+- `crates/learnsys-core/src/`：`entity`（实体类型）、`sm2`（调度算法）、`repo`（仓储 + 聚合 + 搜索/导出/备份/streak/quiz/settings/每日新卡预算）、`schema`（DDL + 版本迁移，当前 v5）、`db`（连接/路径）。
 - `crates/learnsys-api/src/main.rs`：路由 + handlers + DTO + 错误映射。一个 handler 一个职责，别把业务逻辑塞进 API 层——复用 `core::repo`。
 - `frontend/src/`：`api.ts`（类型化客户端）、`types.ts`（镜像 core 实体）、`App.tsx`（视图）。
 
@@ -70,9 +70,10 @@ CI 在 [.github/workflows/ci.yml](.github/workflows/ci.yml)，push 到 `master` 
 
 ## 初始化状态（2026-08-14）
 
-- 基线已验证：`cargo test` 17 过、`clippy` 无警告、`fmt` 干净、`tsc`/`eslint`/`vitest`/`vite build` 全过。
-- 前端依赖审计：`npm audit` **0 vulnerabilities**（vite 已升至 7.3.6 + `@vitejs/plugin-react` 5.2.0，清掉 esbuild/vite 两条 dev-only advisory；CI Node 22）。
+- 基线已验证：`cargo test` 30 过、`clippy` 无警告、`fmt` 干净、`tsc`/`eslint`/`vitest`（12 用例，含 API 契约 + CardEditor/CardRow/ReminderBadges/SessionTimeline 组件测试）/`vite build` 全过；`./scripts/e2e.sh` 全链路通过。
+- Phase A–J 全落地：内容层（编辑/搜索/标签/多模态）、调度层（新卡复习分离+每日预算/leech）、数据层（导出/备份）、体验层（提醒/streak/测验）。schema v5。
+- 前端依赖审计：`npm audit` **0 vulnerabilities**（vite 7.3.6 + `@vitejs/plugin-react` 5.2.0；CI Node 22）。
 - 已知未决（open items）：
-  1. `docs/plantree/plans/core/topics/api-contract.md` 是草案，缺 LMS 端点；权威 API 表以 `README.md` + `learnsys-api/src/main.rs` 为准。
+  1. `docs/plantree/plans/core/topics/api-contract.md` 是草案；权威 API 表以 `README.md` + `learnsys-api/src/main.rs` 为准。
   2. `docs/plantree/baseline/README.md` 仍写"尚无代码"，待补 module-map / runtime-flows。
 - 坑：起本地服务验证前先 `lsof -nP -iTCP:7878 -sTCP:LISTEN` 清残留进程；`cargo run &` 后别只 `kill` cargo（会留孤儿 `learnsys-api`），用 `pkill -f learnsys-api`。

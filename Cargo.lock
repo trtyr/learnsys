@@ -421,6 +421,7 @@ dependencies = [
  "chrono",
  "learnsys-core",
  "rusqlite",
+ "serde_json",
  "uuid",
 ]
 

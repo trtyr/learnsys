@@ -27,6 +27,12 @@ pub struct Card {
     pub updated: DateTime<Utc>,
     /// 所属模块（nullable：散卡无模块）。
     pub module_id: Option<String>,
+    /// 标签（自由文本数组，JSON 存储）。
+    pub tags: Vec<String>,
+    /// 代码块（如 Rust 代码片段）。
+    pub code_block: Option<String>,
+    /// 配图 URL 列表。
+    pub image_urls: Vec<String>,
 }
 
 impl Card {
@@ -49,8 +55,23 @@ impl Card {
             created: today,
             updated: Utc::now(),
             module_id: None,
+            tags: vec![],
+            code_block: None,
+            image_urls: vec![],
         }
     }
+}
+
+/// 卡片编辑补丁：`None` = 不改，`Some` = 替换。`code_block` 用 `Some("")` 表示清空。
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct CardPatch {
+    pub front: Option<String>,
+    pub back: Option<String>,
+    /// 主题 **id**（API 层已解析）。
+    pub topic: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub code_block: Option<String>,
+    pub image_urls: Option<Vec<String>>,
 }
 
 // ──────────────────────── Topic ─────────────────────────

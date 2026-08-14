@@ -23,8 +23,8 @@ use serde_json::{json, Value};
 use tower_http::cors::CorsLayer;
 
 use learnsys_core::entity::{
-    Card, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway, PathwayModule, Resource,
-    Session, Topic, TopicStatus,
+    Card, CardPatch, Goal, GoalStatus, LearnerProfile, Module, ModuleStatus, Pathway,
+    PathwayModule, Resource, Session, Topic, TopicStatus,
 };
 use learnsys_core::repo::{self, RepoError};
 
@@ -50,7 +50,14 @@ async fn main() {
         .route("/", get(health))
         .route("/api/cards", post(create_card).get(list_cards))
         .route("/api/cards/due", get(due_cards))
-        .route("/api/cards/:id", get(get_card).delete(delete_card))
+        .route("/api/cards/search", get(search_cards_handler))
+        .route("/api/cards/new", get(new_cards_handler))
+        .route("/api/cards/leeches", get(leech_cards_handler))
+        .route("/api/quiz", get(quiz_handler))
+        .route(
+            "/api/cards/:id",
+            get(get_card).put(update_card_handler).delete(delete_card),
+        )
         .route("/api/cards/:id/review", post(review_card))
         .route("/api/topics", post(create_topic).get(list_topics))
         .route("/api/topics/:id", get(get_topic).put(update_topic))
@@ -76,6 +83,10 @@ async fn main() {
         .route("/api/stats/heatmap", get(heatmap))
         .route("/api/goals/:id/progress", get(goal_progress))
         .route("/api/profile", get(get_profile).put(upsert_profile))
+        .route("/api/settings", get(get_settings).put(put_settings))
+        .route("/api/export", get(export_handler))
+        .route("/api/export/markdown", get(export_markdown_handler))
+        .route("/api/backup", post(backup_handler))
         .layer(CorsLayer::permissive())
         .with_state(state);
 
@@ -115,6 +126,33 @@ struct TopicQuery {
 #[derive(Deserialize)]
 struct ReviewBody {
     quality: i64,
+}
+
+#[derive(Deserialize)]
+struct UpdateCard {
+    front: Option<String>,
+    back: Option<String>,
+    topic: Option<String>,
+    tags: Option<Vec<String>>,
+    code_block: Option<String>,
+    image_urls: Option<Vec<String>>,
+}
+
+#[derive(Deserialize)]
+struct SearchQuery {
+    q: String,
+    topic: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct SettingsBody {
+    new_per_day: Option<i64>,
+}
+
+#[derive(Deserialize)]
+struct QuizQuery {
+    n: Option<i64>,
+    topic: Option<String>,
 }
 
 // ────────────────────── 错误模型 ──────────────────────
@@ -167,25 +205,135 @@ fn name_topic(db: &rusqlite::Connection, card: &mut Card) {
         .unwrap_or_else(|_| card.topic.clone());
 }
 
+/// 按名取主题；不存在则新建（返回主题）。
+fn resolve_topic_by_name(db: &rusqlite::Connection, name: &str) -> Result<Topic, ApiError> {
+    match repo::get_topic_by_name(db, name) {
+        Ok(t) => Ok(t),
+        Err(RepoError::NotFound(_)) => {
+            let t = Topic::new(name);
+            repo::upsert_topic(db, &t)?;
+            Ok(t)
+        }
+        Err(e) => Err(e.into()),
+    }
+}
+
 async fn create_card(
     State(s): State<AppState>,
     Json(body): Json<CreateCard>,
 ) -> Result<(StatusCode, Json<Card>), ApiError> {
     let db = s.db.lock().unwrap();
-    // topic 用名：不存在则自动建一个空主题
-    let topic = match repo::get_topic_by_name(&db, &body.topic) {
-        Ok(t) => t,
-        Err(RepoError::NotFound(_)) => {
-            let t = Topic::new(&body.topic);
-            repo::upsert_topic(&db, &t)?;
-            t
-        }
-        Err(e) => return Err(e.into()),
-    };
+    let topic = resolve_topic_by_name(&db, &body.topic)?;
     let mut card = Card::new(topic.id, body.front, body.back);
     repo::insert_card(&db, &card)?;
     name_topic(&db, &mut card);
     Ok((StatusCode::CREATED, Json(card)))
+}
+
+async fn update_card_handler(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Json(body): Json<UpdateCard>,
+) -> Result<Json<Card>, ApiError> {
+    let db = s.db.lock().unwrap();
+    let topic_id = match &body.topic {
+        Some(name) => Some(resolve_topic_by_name(&db, name)?.id),
+        None => None,
+    };
+    let patch = CardPatch {
+        front: body.front,
+        back: body.back,
+        topic: topic_id,
+        tags: body.tags,
+        code_block: body.code_block,
+        image_urls: body.image_urls,
+    };
+    let mut card = repo::update_card(&db, &id, &patch)?;
+    name_topic(&db, &mut card);
+    Ok(Json(card))
+}
+
+async fn search_cards_handler(
+    State(s): State<AppState>,
+    Query(q): Query<SearchQuery>,
+) -> Result<Json<Vec<Card>>, ApiError> {
+    let db = s.db.lock().unwrap();
+    let mut cards = repo::search_cards(&db, &q.q, q.topic.as_deref())?;
+    for c in &mut cards {
+        name_topic(&db, c);
+    }
+    Ok(Json(cards))
+}
+
+async fn new_cards_handler(State(s): State<AppState>) -> Result<Json<Vec<Card>>, ApiError> {
+    let db = s.db.lock().unwrap();
+    let mut cards = repo::new_cards(&db, Utc::now().date_naive())?;
+    for c in &mut cards {
+        name_topic(&db, c);
+    }
+    Ok(Json(cards))
+}
+
+async fn leech_cards_handler(State(s): State<AppState>) -> Result<Json<Vec<Card>>, ApiError> {
+    let db = s.db.lock().unwrap();
+    let mut cards = repo::leech_cards(&db)?;
+    for c in &mut cards {
+        name_topic(&db, c);
+    }
+    Ok(Json(cards))
+}
+
+async fn quiz_handler(
+    State(s): State<AppState>,
+    Query(q): Query<QuizQuery>,
+) -> Result<Json<Vec<Card>>, ApiError> {
+    let db = s.db.lock().unwrap();
+    let n = q.n.unwrap_or(5);
+    let mut cards = repo::quiz_cards(&db, Utc::now().date_naive(), n, q.topic.as_deref())?;
+    for c in &mut cards {
+        name_topic(&db, c);
+    }
+    Ok(Json(cards))
+}
+
+async fn get_settings(State(s): State<AppState>) -> Result<Json<Value>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(json!({ "new_per_day": repo::new_per_day(&db) })))
+}
+
+async fn put_settings(
+    State(s): State<AppState>,
+    Json(body): Json<SettingsBody>,
+) -> Result<StatusCode, ApiError> {
+    let db = s.db.lock().unwrap();
+    if let Some(n) = body.new_per_day {
+        repo::set_setting(&db, "new_per_day", &n.to_string())?;
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn export_handler(State(s): State<AppState>) -> Result<Json<repo::Export>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::export_all(&db)?))
+}
+
+async fn export_markdown_handler(State(s): State<AppState>) -> Result<String, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(repo::export_markdown(&db)?)
+}
+
+async fn backup_handler(State(s): State<AppState>) -> Result<Json<Value>, ApiError> {
+    let db = s.db.lock().unwrap();
+    let dir = learnsys_core::db::db_path()
+        .parent()
+        .map(|p| p.join("backups"))
+        .unwrap_or_else(|| std::path::PathBuf::from("backups"));
+    std::fs::create_dir_all(&dir).ok();
+    let ts = Utc::now().format("%Y%m%d-%H%M%S");
+    let dest = dir.join(format!("learnsys-{ts}.db"));
+    let dest_s = dest.to_string_lossy().to_string();
+    repo::backup(&db, &dest_s)?;
+    Ok(Json(json!({ "backup": dest_s })))
 }
 
 async fn list_cards(

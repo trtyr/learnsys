@@ -69,6 +69,9 @@ struct RawCard {
     reps: i64,
     due: NaiveDate,
     created: NaiveDate,
+    tags: Vec<String>,
+    code_block: Option<String>,
+    image_urls: Vec<String>,
 }
 
 fn parse_card(text: &str) -> Option<RawCard> {
@@ -97,6 +100,9 @@ fn parse_card(text: &str) -> Option<RawCard> {
         reps: get("reps").parse().unwrap_or(0),
         due: NaiveDate::parse_from_str(get("due"), "%Y-%m-%d").ok()?,
         created: NaiveDate::parse_from_str(get("created"), "%Y-%m-%d").ok()?,
+        tags: serde_json::from_str(get("tags")).unwrap_or_default(),
+        code_block: serde_json::from_str(get("code_block")).unwrap_or(None),
+        image_urls: serde_json::from_str(get("image_urls")).unwrap_or_default(),
     })
 }
 
@@ -147,11 +153,14 @@ fn import_cards(conn: &Connection, cards_dir: &Path) -> rusqlite::Result<(usize,
             };
             conn.execute(
                 "INSERT OR REPLACE INTO cards
-                 (id, topic, front, back, ef, interval, reps, due, created, updated)
-                 VALUES (?,?,?,?,?,?,?,?,?,?)",
+                 (id, topic, tags, code_block, image_urls, front, back, ef, interval, reps, due, created, updated)
+                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 params![
                     card.id,
                     tid,
+                    serde_json::to_string(&card.tags).unwrap_or_else(|_| String::from("[]")),
+                    card.code_block,
+                    serde_json::to_string(&card.image_urls).unwrap_or_else(|_| String::from("[]")),
                     card.front,
                     card.back,
                     card.ef,
@@ -235,4 +244,21 @@ fn import_progress(conn: &Connection, path: &Path) -> rusqlite::Result<usize> {
         n += rows;
     }
     Ok(n)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_card_roundtrips_content_fields() {
+        let md = "---\nid: c1\nef: 2.5\ninterval: 0\nreps: 0\ndue: 2026-08-14\ncreated: 2026-08-14\ntags: [\"rust\",\"基础\"]\ncode_block: \"fn main() {}\"\nimage_urls: [\"https://e.com/a.png\"]\n---\n什么是所有权\n---\n独占\n";
+        let card = parse_card(md).unwrap();
+        assert_eq!(card.id, "c1");
+        assert_eq!(card.front, "什么是所有权");
+        assert_eq!(card.back, "独占");
+        assert_eq!(card.tags, vec!["rust", "基础"]);
+        assert_eq!(card.code_block.as_deref(), Some("fn main() {}"));
+        assert_eq!(card.image_urls, vec!["https://e.com/a.png"]);
+    }
 }

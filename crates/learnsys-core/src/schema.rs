@@ -6,11 +6,14 @@
 //! - v1: core（topics / cards / review_logs）
 //! - v2: LMS 扩展（goals / pathways / modules / pathway_modules / sessions / learner_profile）
 //!   + cards.module_id（挂到 Module 下，nullable 兼容现有散卡）
+//! - v3: 内容层补强（cards.tags / code_block / image_urls）
+//! - v4: settings 表 + 新卡/复习分离（daily new-card budget）
+//! - v5: review_logs.is_new（新卡首次复习计数，用于每日新卡预算消耗）
 
 use rusqlite::Connection;
 
 /// 当前 schema 版本（写入 `PRAGMA user_version`）。
-pub const SCHEMA_VERSION: i64 = 2;
+pub const SCHEMA_VERSION: i64 = 5;
 
 pub const SCHEMA_SQL: &str = r#"
 PRAGMA foreign_keys = ON;
@@ -39,6 +42,9 @@ CREATE TABLE IF NOT EXISTS cards (
     id        TEXT PRIMARY KEY,
     topic     TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
     module_id TEXT REFERENCES modules(id) ON DELETE SET NULL,
+    tags       TEXT NOT NULL DEFAULT '[]',
+    code_block TEXT,
+    image_urls TEXT NOT NULL DEFAULT '[]',
     front     TEXT NOT NULL,
     back      TEXT NOT NULL,
     ef        REAL NOT NULL DEFAULT 2.5,
@@ -57,7 +63,8 @@ CREATE TABLE IF NOT EXISTS review_logs (
     quality     INTEGER NOT NULL,
     reviewed_at TEXT NOT NULL,
     prev_due    TEXT,
-    new_due     TEXT NOT NULL
+    new_due     TEXT NOT NULL,
+    is_new      INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_logs_card ON review_logs(card_id);
 CREATE INDEX IF NOT EXISTS idx_logs_time ON review_logs(reviewed_at);
@@ -117,7 +124,7 @@ CREATE TABLE IF NOT EXISTS learner_profile (
     updated     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-PRAGMA user_version = 2;
+PRAGMA user_version = 5;
 "#;
 
 pub const EXTRA_SQL: &str = r#"
@@ -132,6 +139,11 @@ CREATE TABLE IF NOT EXISTS resources (
 );
 CREATE INDEX IF NOT EXISTS idx_resources_module ON resources(module_id);
 CREATE INDEX IF NOT EXISTS idx_resources_card ON resources(card_id);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 "#;
 
 /// 在给定连接上初始化 schema（幂等，可重复调用）。
@@ -140,6 +152,10 @@ CREATE INDEX IF NOT EXISTS idx_resources_card ON resources(card_id);
 pub fn init(conn: &Connection) -> Result<(), rusqlite::Error> {
     conn.execute_batch(SCHEMA_SQL)?;
     ensure_column(conn, "cards", "module_id", "TEXT")?;
+    ensure_column(conn, "cards", "tags", "TEXT NOT NULL DEFAULT '[]'")?;
+    ensure_column(conn, "cards", "code_block", "TEXT")?;
+    ensure_column(conn, "cards", "image_urls", "TEXT NOT NULL DEFAULT '[]'")?;
+    ensure_column(conn, "review_logs", "is_new", "INTEGER NOT NULL DEFAULT 0")?;
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_cards_module ON cards(module_id)")?;
     conn.execute_batch(EXTRA_SQL)?;
     Ok(())
@@ -246,5 +262,22 @@ mod tests {
             has_column(&conn, "cards", "module_id"),
             "旧库未补 module_id"
         );
+    }
+
+    #[test]
+    fn migrate_old_v2_db_gets_content_columns() {
+        // 模拟旧 v2 库：cards 有 module_id 但无 tags/code_block/image_urls
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, stage TEXT DEFAULT '', status TEXT DEFAULT 'active', last_studied TEXT, next_plan TEXT DEFAULT '', created TEXT DEFAULT (date('now')));
+             CREATE TABLE modules (id TEXT PRIMARY KEY, title TEXT);
+             CREATE TABLE cards (id TEXT PRIMARY KEY, topic TEXT, module_id TEXT, front TEXT, back TEXT, ef REAL DEFAULT 2.5, interval INTEGER DEFAULT 0, reps INTEGER DEFAULT 0, due TEXT, created TEXT, updated TEXT DEFAULT (datetime('now')));",
+        )
+        .unwrap();
+        assert!(!has_column(&conn, "cards", "tags"));
+        init(&conn).unwrap();
+        assert!(has_column(&conn, "cards", "tags"));
+        assert!(has_column(&conn, "cards", "code_block"));
+        assert!(has_column(&conn, "cards", "image_urls"));
     }
 }
