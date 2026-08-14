@@ -1,0 +1,10 @@
+services:
+  learnsys:
+    build: .
+    image: learnsys:latest
+    container_name: learnsys
+    ports:
+      - "7878:7878"
+    volumes:
+      - "${HOME}/Library/Application Support/learnsys:/data"
+    restart: unless-stopped
