@@ -44,5 +44,5 @@
 
 ## 当前状态
 
-- **Phase**：🔵 P0 卡片内容层增肥（decision 005 card-first）
-- **Next**：P0 建卡入口补齐 + 出处 + 标签浏览 → P1 知识连接 → P2 复习洞察
+- **Phase**：🟢 P0/P1/P2 全部落地（decision 005 card-first：内容层增肥 + 知识连接 + 复习洞察）
+- **Next**：语义搜索（Deferred，需向量库）；其余按需

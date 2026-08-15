@@ -22,7 +22,7 @@ headless 学习数据平台：**确定性的归平台**（SM-2 调度、统计�
 ```bash
 # 后端
 cargo build --workspace
-cargo test --workspace          # 35 用例，core: entity/schema/sm2/repo + migrate 回导
+cargo test --workspace          # 37 用例，core: entity/schema/sm2/repo + migrate 回导
 cargo clippy --workspace --all-targets
 cargo fmt --check
 
@@ -44,7 +44,7 @@ CI 在 [.github/workflows/ci.yml](.github/workflows/ci.yml)，push 到 `master` 
 
 依赖方向严格单向：`api → core`、`migrate → core`；`frontend → 后端` 只走 REST，绝不直接碰 SQLite。
 
-- `crates/learnsys-core/src/`：`entity`（实体类型）、`sm2`（调度算法）、`repo`（仓储 + 聚合 + 搜索/导出/备份/streak/quiz/settings/每日新卡预算/timeline）、`schema`（DDL + 版本迁移，当前 v6）、`db`（连接/路径）。
+- `crates/learnsys-core/src/`：`entity`（实体类型）、`sm2`（调度算法）、`repo`（仓储 + 聚合 + 搜索/导出/备份/streak/quiz/settings/每日新卡预算/timeline）、`schema`（DDL + 版本迁移，当前 v7）、`db`（连接/路径）。
 - `crates/learnsys-api/src/main.rs`：路由 + handlers + DTO + 错误映射。一个 handler 一个职责，别把业务逻辑塞进 API 层——复用 `core::repo`。
 - `frontend/src/`：`api.ts`（类型化客户端）、`types.ts`（镜像 core 实体）、`App.tsx`（视图）。
 

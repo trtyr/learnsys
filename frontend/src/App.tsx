@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { api } from './api'
-import type { Card, Dashboard, Goal, GoalProgress, HeatmapDay, LearnerProfile, Module, ModuleMastery, Pathway, PathwayModule, Resource, Session, TimelineEvent } from './types'
+import type { Card, Dashboard, Goal, GoalProgress, HeatmapDay, LearnerProfile, Module, ModuleMastery, Pathway, PathwayModule, Resource, Session, TimelineEvent, UpcomingDay, WeakTopic } from './types'
 
 type Tab = 'today' | 'cards' | 'library' | 'review'
 type CaptureKind = 'card' | 'goal' | 'note'
@@ -95,6 +95,7 @@ export function CardLibrary() {
   const [due, setDue] = useState<'all' | 'today' | 'overdue'>('all')
   const [tag, setTag] = useState('')
   const [q, setQ] = useState('')
+  const [editing, setEditing] = useState<Card | null>(null)
 
   useEffect(() => { api.cards.list().then(setCards).catch(() => setCards([])) }, [])
 
@@ -119,6 +120,7 @@ export function CardLibrary() {
     return true
   })
 
+  const frontById = new Map(cards.map((c) => [c.id, c.front]))
   const statusTabs = [
     { id: 'all' as const, label: '全部', n: cards.length },
     { id: 'new' as const, label: '未复习', n: newCount },
@@ -167,12 +169,28 @@ export function CardLibrary() {
                   {c.back && <div className="muted" style={{ fontSize: 12 }}>{c.back}</div>}
                   {c.code_block && <pre style={{ marginTop: 6, padding: 6, background: '#111', borderRadius: 3, fontSize: 11, overflowX: 'auto', fontFamily: 'var(--font-flap)' }}>{c.code_block}</pre>}
                   {c.source && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>出处：{c.source}</div>}
+                  {c.related.length > 0 && (
+                    <div style={{ fontSize: 11, marginTop: 2, color: 'var(--accent)' }}>
+                      关联：
+                      {c.related.map((rid, i) => (
+                        <span key={rid}>
+                          {i > 0 && ' · '}
+                          <a style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setEditing(cards.find((x) => x.id === rid) || null)}>
+                            {frontById.get(rid) || rid.slice(0, 8)}
+                          </a>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
           )}
         </div>
       </div>
+      {editing && (
+        <CardEditor card={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); api.cards.list().then(setCards) }} />
+      )}
     </div>
   )
 }
@@ -201,6 +219,7 @@ export function CaptureModal({ kind, onClose, onSaved }: { kind: CaptureKind; on
   const [codeBlock, setCodeBlock] = useState('')
   const [imageUrls, setImageUrls] = useState('')
   const [source, setSource] = useState('')
+  const [related, setRelated] = useState('')
   const [err, setErr] = useState<string | null>(null)
 
   const submit = async () => {
@@ -213,6 +232,7 @@ export function CaptureModal({ kind, onClose, onSaved }: { kind: CaptureKind; on
           code_block: codeBlock || undefined,
           image_urls: imageUrls.split(',').map((s) => s.trim()).filter(Boolean),
           source: source || undefined,
+          related: related.split(',').map((s) => s.trim()).filter(Boolean),
         })
       } else if (kind === 'goal' && title) {
         await api.goals.create({ title })
@@ -247,6 +267,8 @@ export function CaptureModal({ kind, onClose, onSaved }: { kind: CaptureKind; on
             <input value={imageUrls} onChange={(e) => setImageUrls(e.target.value)} placeholder="https://…" />
             <label>出处（视频 / 文章 / 文档，可选）</label>
             <input value={source} onChange={(e) => setSource(e.target.value)} placeholder="《Rust 编程之道》第 3 章" />
+            <label>关联卡片 id（逗号分隔，可选）</label>
+            <input value={related} onChange={(e) => setRelated(e.target.value)} placeholder="card-id-1, card-id-2" />
           </>
         )}
         {kind === 'goal' && (
@@ -825,6 +847,7 @@ export function CardEditor({ card, onClose, onSaved }: { card: Card; onClose: ()
   const [codeBlock, setCodeBlock] = useState(card.code_block ?? '')
   const [imageUrls, setImageUrls] = useState(card.image_urls.join(', '))
   const [source, setSource] = useState(card.source ?? '')
+  const [related, setRelated] = useState(card.related.join(', '))
   const [moduleId, setModuleId] = useState(card.module_id ?? '')
   const [modules, setModules] = useState<Module[]>([])
   useEffect(() => { api.modules.list().then(setModules).catch(() => setModules([])) }, [])
@@ -844,6 +867,8 @@ export function CardEditor({ card, onClose, onSaved }: { card: Card; onClose: ()
         <input value={imageUrls} onChange={(e) => setImageUrls(e.target.value)} placeholder="https://…" />
         <label>出处（视频 / 文章 / 文档，可选）</label>
         <input value={source} onChange={(e) => setSource(e.target.value)} placeholder="《Rust 编程之道》第 3 章" />
+        <label>关联卡片 id（逗号分隔，可选）</label>
+        <input value={related} onChange={(e) => setRelated(e.target.value)} placeholder="card-id-1, card-id-2" />
         <label>挂到模块</label>
         <select value={moduleId} onChange={(e) => setModuleId(e.target.value)}>
           <option value="">（散卡，不挂模块）</option>
@@ -858,6 +883,7 @@ export function CardEditor({ card, onClose, onSaved }: { card: Card; onClose: ()
               image_urls: imageUrls.split(',').map((s) => s.trim()).filter(Boolean),
               module_id: moduleId,
               source: source || undefined,
+              related: related.split(',').map((s) => s.trim()).filter(Boolean),
             })
             onSaved()
           }}>保存</button>
@@ -873,7 +899,14 @@ export function CardEditor({ card, onClose, onSaved }: { card: Card; onClose: ()
 function ProgressView({ dash }: { dash: Dashboard }) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [heat, setHeat] = useState<HeatmapDay[]>([])
-  useEffect(() => { api.sessions.list(10).then(setSessions); api.stats.heatmap(84).then(setHeat) }, [])
+  const [upcoming, setUpcoming] = useState<UpcomingDay[]>([])
+  const [weakTopics, setWeakTopics] = useState<WeakTopic[]>([])
+  useEffect(() => {
+    api.sessions.list(10).then(setSessions)
+    api.stats.heatmap(84).then(setHeat)
+    api.stats.upcoming(7).then(setUpcoming).catch(() => setUpcoming([]))
+    api.stats.weakTopics().then(setWeakTopics).catch(() => setWeakTopics([]))
+  }, [])
   const maxCount = Math.max(...dash.stats.by_topic.map((x) => x.count), 1)
   const heatMap = new Map(heat.map((h) => [h.date, h.count]))
 
@@ -918,6 +951,39 @@ function ProgressView({ dash }: { dash: Dashboard }) {
               </div>
             ))}
           </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">未来 7 天到期</div>
+        <div className="panel-body">
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 84 }}>
+            {upcoming.map((d) => (
+              <div key={d.date} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                <span style={{ fontSize: 11, fontFamily: 'var(--font-flap)', color: d.count > 0 ? 'var(--amber)' : 'var(--muted)' }}>{d.count > 0 ? d.count : ''}</span>
+                <div style={{ width: '100%', background: d.count > 0 ? 'var(--amber)' : '#1a1a1a', borderRadius: 2, height: `${Math.max(d.count * 16, 4)}px` }} />
+                <span style={{ fontSize: 10, fontFamily: 'var(--font-flap)', color: 'var(--muted)' }}>{d.date.slice(5)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-header">薄弱点</div>
+        <div className="panel-body">
+          {weakTopics.length === 0 ? (
+            <div className="loading" style={{ padding: 12 }}>暂无顽固卡——学得不错。</div>
+          ) : (
+            <div style={{ display: 'grid', gap: 6 }}>
+              {weakTopics.map((w) => (
+                <div key={w.topic} style={{ display: 'flex', alignItems: 'center', gap: 10, fontFamily: 'var(--font-flap)', fontSize: 12 }}>
+                  <span style={{ width: 70 }}>{w.topic}</span>
+                  <span className="tag red">顽固卡 {w.weak} 张</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 

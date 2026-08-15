@@ -35,6 +35,8 @@ pub struct Card {
     pub image_urls: Vec<String>,
     /// 出处（来自哪个视频 / 文章 / 文档，URL 或描述）。
     pub source: Option<String>,
+    /// 关联卡片 id 列表（双向链接，底层同源的知识点互相指）。
+    pub related: Vec<String>,
 }
 
 impl Card {
@@ -61,6 +63,7 @@ impl Card {
             code_block: None,
             image_urls: vec![],
             source: None,
+            related: vec![],
         }
     }
 }
@@ -79,6 +82,8 @@ pub struct CardPatch {
     pub module_id: Option<String>,
     /// 出处：`Some("")` 清空，`Some(v)` 设置，`None` 不改。
     pub source: Option<String>,
+    /// 关联卡片 id 列表：`None` 不改，`Some(list)` 替换。
+    pub related: Option<Vec<String>>,
 }
 
 /// 目标编辑补丁。

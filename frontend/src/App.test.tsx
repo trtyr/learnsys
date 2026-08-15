@@ -11,6 +11,7 @@ const baseCard: Card = {
   due: '2026-08-14', created: '2026-08-14', updated: '2026-08-14T00:00:00Z',
   module_id: null, tags: ['rust'], code_block: 'fn main() {}', image_urls: ['https://e.com/a.png'],
   source: null,
+  related: [],
 }
 
 beforeEach(() => {
@@ -205,5 +206,28 @@ describe('CardLibrary（标签筛选）', () => {
     fireEvent.change(selects[2], { target: { value: 'rust' } })
     expect(screen.getByText('所有权')).toBeTruthy()
     expect(screen.queryByText('连接复用')).toBeNull()
+  })
+
+  it('显示关联卡片（关联 line 含对方 front）', async () => {
+    vi.spyOn(api.cards, 'list').mockResolvedValue([
+      { ...baseCard, id: 'c1', front: '所有权', related: ['c2'] },
+      { ...baseCard, id: 'c2', front: '连接复用', related: ['c1'] },
+    ])
+    const { container } = render(<CardLibrary />)
+    await vi.waitFor(() => expect(container.textContent).toContain('所有权'))
+    expect(container.textContent).toContain('关联：')
+    expect(container.textContent).toContain('连接复用')
+  })
+
+  it('点击关联卡片跳转到编辑', async () => {
+    vi.spyOn(api.cards, 'list').mockResolvedValue([
+      { ...baseCard, id: 'c1', front: '所有权', related: ['c2'] },
+      { ...baseCard, id: 'c2', front: '连接复用', related: ['c1'] },
+    ])
+    const { container } = render(<CardLibrary />)
+    await vi.waitFor(() => expect(container.textContent).toContain('所有权'))
+    const link = container.querySelector('a')
+    fireEvent.click(link as Element)
+    await vi.waitFor(() => expect(container.textContent).toContain('编辑卡片'))
   })
 })

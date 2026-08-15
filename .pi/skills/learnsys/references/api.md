@@ -6,7 +6,7 @@
 
 | Method | Path | 说明 | Body / 参数 |
 |--------|------|------|-------------|
-| POST | `/api/cards` | 建卡（topic 用名，不存在自动建） | `{topic, front, back, tags?, code_block?, image_urls?, source?}` |
+| POST | `/api/cards` | 建卡（topic 用名，不存在自动建） | `{topic, front, back, tags?, code_block?, image_urls?, source?, related?}` |
 | GET | `/api/cards` | 列卡 | `?topic=`（主题名） |
 | GET | `/api/cards/due` | 今日待复习（reps>0 且到期） | `?topic=` |
 | GET | `/api/cards/search` | 搜索正面/背面/标签 | `?q=`（必填）、`?topic=` |
@@ -92,6 +92,8 @@
 | GET | `/api/quiz` | 测验抽取 `?n=&topic=` |
 | GET | `/api/stats` | 总卡片/待复习/平均 EF/主题分布 |
 | GET | `/api/stats/heatmap` | 复习热力 `?days=` |
+| GET | `/api/stats/upcoming` | 未来 `?days=` 天每天到期数 |
+| GET | `/api/stats/weak-topics` | 薄弱点聚类（leech/低 EF 按主题） |
 | GET | `/api/dashboard` | 看板聚合（含 streak/leech_count） |
 | GET | `/api/export` | 全量 JSON 导出 |
 | GET | `/api/export/markdown` | markdown 导出（migrate 兼容） |

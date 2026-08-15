@@ -9,6 +9,7 @@ export interface Card {
   code_block: string | null;
   image_urls: string[];
   source: string | null;
+  related: string[];
 }
 
 export type TopicStatus = 'active' | 'completed' | 'paused'
@@ -76,3 +77,5 @@ export interface GoalProgress {
 export interface TimelineEvent {
   at: string; kind: 'card' | 'review' | 'session'; summary: string;
 }
+export interface UpcomingDay { date: string; count: number }
+export interface WeakTopic { topic: string; weak: number }

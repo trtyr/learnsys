@@ -93,6 +93,7 @@ def main():
     p_cc.add_argument("--code-block", help="代码块")
     p_cc.add_argument("--image-urls", help="逗号分隔图片 URL")
     p_cc.add_argument("--source", help="出处（视频/文章/文档）")
+    p_cc.add_argument("--related", help="逗号分隔的关联卡片 id")
 
     p_cl = cs.add_parser("list", help="列卡")
     add_topic_opt(p_cl)
@@ -113,6 +114,8 @@ def main():
     p_ce.add_argument("--code-block")
     p_ce.add_argument("--image-urls")
     p_ce.add_argument("--module-id", help="挂到模块（空串=脱离）")
+    p_ce.add_argument("--source", help="出处")
+    p_ce.add_argument("--related", help="逗号分隔的关联卡片 id")
 
     p_cd = cs.add_parser("delete", help="删卡")
     add_id(p_cd)
@@ -280,6 +283,7 @@ def main():
                 "topic": a.topic, "front": a.front, "back": a.back,
                 "tags": split_csv(a.tags), "code_block": a.code_block,
                 "image_urls": split_csv(a.image_urls), "source": a.source,
+                "related": split_csv(a.related),
             }))
         elif s2 == "list":
             out(call("GET", f"/api/cards?topic={a.topic}" if a.topic else "/api/cards"))
@@ -293,6 +297,7 @@ def main():
                 "front": a.front, "back": a.back, "topic": a.topic,
                 "tags": split_csv(a.tags), "code_block": a.code_block,
                 "image_urls": split_csv(a.image_urls), "module_id": a.module_id,
+                "source": a.source, "related": split_csv(a.related),
             }))
         elif s2 == "delete":
             call("DELETE", f"/api/cards/{a.id}")

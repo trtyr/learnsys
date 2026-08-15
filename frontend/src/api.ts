@@ -1,4 +1,4 @@
-import type { Card, Goal, GoalProgress, HeatmapDay, LearnerProfile, Module, ModuleMastery, Pathway, PathwayModule, Resource, Session, TimelineEvent, Topic } from './types'
+import type { Card, Goal, GoalProgress, HeatmapDay, LearnerProfile, Module, ModuleMastery, Pathway, PathwayModule, Resource, Session, TimelineEvent, Topic, UpcomingDay, WeakTopic } from './types'
 
 const BASE = '/api'
 
@@ -36,8 +36,8 @@ export const api = {
     list: (topic?: string) => get<Card[]>(`/cards${topic ? `?topic=${encodeURIComponent(topic)}` : ''}`),
     get: (id: string) => get<Card>(`/cards/${id}`),
     review: (id: string, quality: number) => post<Card>(`/cards/${id}/review`, { quality }),
-    create: (body: { topic: string; front: string; back: string; tags?: string[]; code_block?: string; image_urls?: string[]; source?: string }) => post<Card>('/cards', body),
-    update: (id: string, patch: { front?: string; back?: string; topic?: string; tags?: string[]; code_block?: string; image_urls?: string[]; module_id?: string; source?: string }) =>
+    create: (body: { topic: string; front: string; back: string; tags?: string[]; code_block?: string; image_urls?: string[]; source?: string; related?: string[] }) => post<Card>('/cards', body),
+    update: (id: string, patch: { front?: string; back?: string; topic?: string; tags?: string[]; code_block?: string; image_urls?: string[]; module_id?: string; source?: string; related?: string[] }) =>
       put<Card>(`/cards/${id}`, patch),
     search: (q: string, topic?: string) =>
       get<Card[]>(`/cards/search?q=${encodeURIComponent(q)}${topic ? `&topic=${encodeURIComponent(topic)}` : ''}`),
@@ -91,6 +91,8 @@ export const api = {
   },
   stats: {
     heatmap: (days?: number) => get<HeatmapDay[]>(`/stats/heatmap${days ? `?days=${days}` : ''}`),
+    upcoming: (days?: number) => get<UpcomingDay[]>(`/stats/upcoming?days=${days ?? 7}`),
+    weakTopics: () => get<WeakTopic[]>('/stats/weak-topics'),
   },
   sessions: {
     start: (body?: { goal_id?: string; pathway_id?: string }) => post<Session>('/sessions/start', body || {}),

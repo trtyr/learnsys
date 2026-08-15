@@ -15,19 +15,14 @@
 - 🟢 **Phase J**：体验层（提醒红点 / streak / 会话时间轴 / 测验抽取）
 - 🟢 **工作台重构**：定位翻转（decision 004）+ 前端工作台（今天 / 学习库 / 回顾 + 快捷记录）+ `/api/timeline`
 - 🟢 **P0 卡片内容层增肥**：建卡入口补 tags/code_block/image_urls/source（schema v6）+ 卡片库标签筛选（decision 005）
+- 🟢 **P1 知识连接**：Card 加 related 双向链接（schema v7）+ 卡片库相关卡片展示/跳转
+- 🟢 **P2 复习洞察**：`/api/stats/upcoming`（未来 7 天排期）+ `/api/stats/weak-topics`（薄弱点聚类）+ 回顾页展示
 
 > 落地选择对账：Phase A–F 见 [decision 002](decisions/002-lms-implementation-choices.md)，Phase G–J 见 [decision 003](decisions/003-gap-fill-implementation-choices.md)，工作台重构见 [decision 004](decisions/004-human-first-positioning.md)。
 
-## Next（卡片内容层增肥，card-first）
-
-> 方向回调见 [decision 005](decisions/005-card-first-content-focus.md)：结构过剩、内容贫血，重心转回卡片。方案见 [topics/card-enrichment.md](topics/card-enrichment.md)。
-
-| Phase | 目标 | 关键产出 |
-|-------|------|---------|
-| **P1** | 知识连接 | Card 加 related 字段（双向链接）+ "相关卡片"区 |
-| **P2** | 复习洞察 | `/api/stats/upcoming`（未来到期预测）+ 薄弱点聚类 + 语义搜索 |
-
 ## Deferred
+
+- ⚪ 语义搜索（需向量库/嵌入，用标签 + 关联先顶一阵）
 
 - ⚪ 多用户 / 认证
 - ⚪ 知识图谱可视化

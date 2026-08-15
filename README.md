@@ -55,7 +55,7 @@
 | 层 | 栈 |
 |----|----|
 | 后端 | Rust (edition 2021) + axum 0.7 + tokio |
-| 存储 | SQLite（rusqlite bundled，schema v6） |
+| 存储 | SQLite（rusqlite bundled，schema v7） |
 | 前端 | React 18 + Vite 7 + TypeScript |
 | 部署 | Docker 多阶段，单容器 |
 
@@ -99,7 +99,7 @@ docker compose up -d --build   # 构建 + 启动
 
 | Method | Path | 作用 |
 |--------|------|------|
-| POST | `/api/cards` | 建卡 `{topic, front, back, tags?, code_block?, image_urls?, source?}`（topic 用名，不存在自动建主题） |
+| POST | `/api/cards` | 建卡 `{topic, front, back, tags?, code_block?, image_urls?, source?, related?}`（topic 用名，不存在自动建主题） |
 | GET | `/api/cards` | 列卡 `?topic=` |
 | GET | `/api/cards/due` | 今日待复习 `?topic=` |
 | GET | `/api/cards/search` | 搜索 `?q=` 匹配正面 / 背面 / 标签 / 出处 |
@@ -111,6 +111,8 @@ docker compose up -d --build   # 构建 + 启动
 | GET / PUT | `/api/topics/:id` | 取 / 更新主题 |
 | GET | `/api/stats` | 总卡片 / 待复习 / 平均 EF / 主题分布 |
 | GET | `/api/stats/heatmap` | 复习热力 `?days=` |
+| GET | `/api/stats/upcoming` | 未来 `?days=` 天每天到期数（排期预测） |
+| GET | `/api/stats/weak-topics` | 薄弱点聚类（leech / 低 EF 按主题） |
 | GET | `/api/dashboard` | 看板聚合（待复习 + 进行中主题 + 预警） |
 
 ### LMS（目标 → 路径 → 模块 → 会话 → 画像）

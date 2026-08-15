@@ -71,6 +71,7 @@ fn card_from_row(r: &Row) -> rusqlite::Result<Card> {
     let updated: String = r.get("updated")?;
     let tags: String = r.get("tags")?;
     let image_urls: String = r.get("image_urls")?;
+    let related: String = r.get("related")?;
     Ok(Card {
         id: r.get("id")?,
         topic: r.get("topic")?,
@@ -87,6 +88,7 @@ fn card_from_row(r: &Row) -> rusqlite::Result<Card> {
         code_block: r.get("code_block")?,
         image_urls: parse_json_list(&image_urls),
         source: r.get("source")?,
+        related: parse_json_list(&related),
     })
 }
 
@@ -121,11 +123,72 @@ fn log_from_row(r: &Row) -> rusqlite::Result<ReviewLog> {
 
 // ───────────────────── Card ─────────────────────
 
-pub fn insert_card(conn: &Connection, c: &Card) -> Result<()> {
+/// 写某卡片的 related 列表。
+fn set_related_for(conn: &Connection, card_id: &str, related: &[String]) -> Result<()> {
     conn.execute(
+        "UPDATE cards SET related=? WHERE id=?",
+        params![
+            serde_json::to_string(related).unwrap_or_else(|_| String::from("[]")),
+            card_id
+        ],
+    )?;
+    Ok(())
+}
+
+/// 把 other 加入 card_id 的 related（幂等；卡不存在则忽略）。
+fn add_related(conn: &Connection, card_id: &str, other: &str) -> Result<()> {
+    let mut c = match get_card(conn, card_id) {
+        Ok(c) => c,
+        Err(RepoError::NotFound(_)) => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    if !c.related.iter().any(|x| x == other) {
+        c.related.push(other.to_string());
+        set_related_for(conn, card_id, &c.related)?;
+    }
+    Ok(())
+}
+
+/// 把 other 从 card_id 的 related 移除（幂等）。
+fn remove_related(conn: &Connection, card_id: &str, other: &str) -> Result<()> {
+    let mut c = match get_card(conn, card_id) {
+        Ok(c) => c,
+        Err(RepoError::NotFound(_)) => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    c.related.retain(|x| x != other);
+    set_related_for(conn, card_id, &c.related)?;
+    Ok(())
+}
+
+/// 双向同步 related：new 里多出的加到另一端，old 里删掉的从另一端移除。
+fn sync_related(conn: &Connection, card_id: &str, old: &[String], new: &[String]) -> Result<()> {
+    for other in new.iter().filter(|x| !old.contains(x)) {
+        add_related(conn, other, card_id)?;
+    }
+    for other in old.iter().filter(|x| !new.contains(x)) {
+        remove_related(conn, other, card_id)?;
+    }
+    Ok(())
+}
+
+/// 过滤 related：去掉自关联和不存在的卡 id（悬空）。
+fn valid_related(conn: &Connection, self_id: &str, related: &[String]) -> Vec<String> {
+    related
+        .iter()
+        .filter(|id| *id != self_id)
+        .filter(|id| get_card(conn, id).is_ok())
+        .cloned()
+        .collect()
+}
+
+pub fn insert_card(conn: &Connection, c: &Card) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    let related = valid_related(&tx, &c.id, &c.related);
+    tx.execute(
         "INSERT OR REPLACE INTO cards
-         (id, topic, module_id, tags, code_block, image_urls, source, front, back, ef, interval, reps, due, created, updated)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+         (id, topic, module_id, tags, code_block, image_urls, source, related, front, back, ef, interval, reps, due, created, updated)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         params![
             c.id,
             c.topic,
@@ -134,6 +197,7 @@ pub fn insert_card(conn: &Connection, c: &Card) -> Result<()> {
             c.code_block,
             serde_json::to_string(&c.image_urls).unwrap_or_else(|_| String::from("[]")),
             c.source,
+            serde_json::to_string(&related).unwrap_or_else(|_| String::from("[]")),
             c.front,
             c.back,
             c.ef,
@@ -144,6 +208,11 @@ pub fn insert_card(conn: &Connection, c: &Card) -> Result<()> {
             c.updated.to_rfc3339(),
         ],
     )?;
+    // 双向：往每张关联卡加本卡 id
+    for r in &related {
+        add_related(&tx, r, &c.id)?;
+    }
+    tx.commit()?;
     Ok(())
 }
 
@@ -291,10 +360,14 @@ pub fn quiz_cards(
 }
 
 pub fn delete_card(conn: &Connection, id: &str) -> Result<()> {
-    let n = conn.execute("DELETE FROM cards WHERE id = ?", params![id])?;
-    if n == 0 {
-        return Err(RepoError::NotFound(format!("card {id}")));
+    let tx = conn.unchecked_transaction()?;
+    let card = get_card(&tx, id)?;
+    // 反向清理：从关联卡里删掉本卡
+    for r in &card.related {
+        remove_related(&tx, r, id)?;
     }
+    tx.execute("DELETE FROM cards WHERE id = ?", params![id])?;
+    tx.commit()?;
     Ok(())
 }
 
@@ -347,7 +420,9 @@ pub fn review_card(conn: &Connection, id: &str, quality: i64, today: NaiveDate) 
 
 /// 编辑卡片：应用补丁的非 `None` 字段，不触碰 SM-2 调度状态。
 pub fn update_card(conn: &Connection, id: &str, patch: &CardPatch) -> Result<Card> {
-    let mut card = get_card(conn, id)?;
+    let tx = conn.unchecked_transaction()?;
+    let mut card = get_card(&tx, id)?;
+    let old_related = card.related.clone();
     if let Some(front) = &patch.front {
         card.front = front.clone();
     }
@@ -384,9 +459,12 @@ pub fn update_card(conn: &Connection, id: &str, patch: &CardPatch) -> Result<Car
             Some(src.clone())
         };
     }
+    if let Some(related) = &patch.related {
+        card.related = valid_related(&tx, id, related);
+    }
     card.updated = Utc::now();
-    conn.execute(
-        "UPDATE cards SET topic=?, tags=?, code_block=?, image_urls=?, module_id=?, source=?, front=?, back=?, updated=? WHERE id=?",
+    tx.execute(
+        "UPDATE cards SET topic=?, tags=?, code_block=?, image_urls=?, module_id=?, source=?, related=?, front=?, back=?, updated=? WHERE id=?",
         params![
             card.topic,
             serde_json::to_string(&card.tags).unwrap_or_else(|_| String::from("[]")),
@@ -394,12 +472,16 @@ pub fn update_card(conn: &Connection, id: &str, patch: &CardPatch) -> Result<Car
             serde_json::to_string(&card.image_urls).unwrap_or_else(|_| String::from("[]")),
             card.module_id,
             card.source,
+            serde_json::to_string(&card.related).unwrap_or_else(|_| String::from("[]")),
             card.front,
             card.back,
             card.updated.to_rfc3339(),
             id,
         ],
     )?;
+    // 双向同步关联关系
+    sync_related(&tx, id, &old_related, &card.related)?;
+    tx.commit()?;
     Ok(card)
 }
 
@@ -1267,6 +1349,68 @@ pub fn timeline(conn: &Connection, today: NaiveDate) -> Result<Vec<TimelineEvent
     Ok(events)
 }
 
+// ──────────────────── 复习洞察 ────────────────────
+
+#[derive(Debug, serde::Serialize)]
+pub struct UpcomingDay {
+    pub date: String,
+    pub count: i64,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct WeakTopic {
+    pub topic: String,
+    pub weak: i64,
+}
+
+/// 未来 `days` 天每天到期的卡片数（含 0 的日子，便于排期）。
+pub fn upcoming(conn: &Connection, today: NaiveDate, days: i64) -> Result<Vec<UpcomingDay>> {
+    let days = days.clamp(1, 365);
+    let start = to_date_str(today);
+    let end = to_date_str(today + chrono::Duration::days(days));
+    let mut stmt =
+        conn.prepare("SELECT due, count(*) FROM cards WHERE due > ? AND due <= ? GROUP BY due")?;
+    let rows = stmt.query_map(params![start, end], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?))
+    })?;
+    let mut counts: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+    for row in rows {
+        let (date, count) = row?;
+        counts.insert(date, count);
+    }
+    let mut out = Vec::new();
+    for i in 1..=days {
+        let d = today + chrono::Duration::days(i);
+        let s = to_date_str(d);
+        out.push(UpcomingDay {
+            date: s.clone(),
+            count: counts.get(&s).copied().unwrap_or(0),
+        });
+    }
+    Ok(out)
+}
+
+/// 薄弱点聚类：leech / 低 EF 卡按主题聚合，回答"哪块最弱"。
+pub fn weak_topics(conn: &Connection) -> Result<Vec<WeakTopic>> {
+    let leeches = leech_cards(conn)?;
+    let topics = list_topics(conn)?;
+    let name_of = |id: &str| {
+        topics
+            .iter()
+            .find(|t| t.id == id)
+            .map(|t| t.name.clone())
+            .unwrap_or_else(|| id.to_string())
+    };
+    let mut map: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+    for c in leeches {
+        *map.entry(name_of(&c.topic)).or_default() += 1;
+    }
+    Ok(map
+        .into_iter()
+        .map(|(topic, weak)| WeakTopic { topic, weak })
+        .collect())
+}
+
 // ──────────────────── Export / Backup ────────────────────
 
 #[derive(Debug, serde::Serialize)]
@@ -1766,11 +1910,14 @@ mod tests {
     fn card_roundtrips_content_fields_including_source() {
         let c = mem();
         let t = seed_topic(&c);
+        let other = Card::new(t.id.clone(), "连接复用", "RAII");
+        insert_card(&c, &other).unwrap();
         let mut card = Card::new(t.id.clone(), "所有权是什么", "独占");
         card.tags = vec!["rust".into(), "基础".into()];
         card.code_block = Some("fn main() {}".into());
         card.image_urls = vec!["https://e.com/a.png".into()];
         card.source = Some("《Rust 编程之道》第 3 章".into());
+        card.related = vec![other.id.clone()];
         insert_card(&c, &card).unwrap();
 
         let got = get_card(&c, &card.id).unwrap();
@@ -1778,7 +1925,101 @@ mod tests {
         assert_eq!(got.code_block.as_deref(), Some("fn main() {}"));
         assert_eq!(got.image_urls, vec!["https://e.com/a.png"]);
         assert_eq!(got.source.as_deref(), Some("《Rust 编程之道》第 3 章"));
+        assert_eq!(got.related, vec![other.id]);
         // source 可被搜索命中
         assert_eq!(search_cards(&c, "编程之道", None).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn upcoming_and_weak_topics() {
+        let c = mem();
+        let t = seed_topic(&c);
+        let today = Utc::now().date_naive();
+
+        let mut c1 = Card::new(t.id.clone(), "q1", "a1");
+        c1.reps = 1;
+        c1.due = today + chrono::Duration::days(1);
+        insert_card(&c, &c1).unwrap();
+        let mut c2 = Card::new(t.id.clone(), "q2", "a2");
+        c2.reps = 1;
+        c2.due = today + chrono::Duration::days(1);
+        insert_card(&c, &c2).unwrap();
+
+        let mut c3 = Card::new(t.id.clone(), "q3", "a3");
+        c3.ef = 1.4;
+        c3.reps = 1;
+        c3.due = today + chrono::Duration::days(3);
+        insert_card(&c, &c3).unwrap();
+
+        let up = upcoming(&c, today, 7).unwrap();
+        assert_eq!(up.len(), 7);
+        assert_eq!(up[0].count, 2); // 第 1 天 2 张
+        assert_eq!(up[2].count, 1); // 第 3 天 1 张
+
+        let weak = weak_topics(&c).unwrap();
+        assert_eq!(weak.len(), 1);
+        assert_eq!(weak[0].topic, "rust");
+        assert_eq!(weak[0].weak, 1); // 1 张 leech
+    }
+
+    #[test]
+    fn related_is_bidirectional() {
+        let c = mem();
+        let t = seed_topic(&c);
+
+        let b = Card::new(t.id.clone(), "B", "b");
+        insert_card(&c, &b).unwrap();
+
+        // 建 A，related=[B] → B 应反向关联 A
+        let mut a = Card::new(t.id.clone(), "A", "a");
+        a.related = vec![b.id.clone()];
+        insert_card(&c, &a).unwrap();
+        assert!(get_card(&c, &b.id).unwrap().related.contains(&a.id));
+
+        // 解除：A.related=[] → B 不再含 A
+        update_card(
+            &c,
+            &a.id,
+            &CardPatch {
+                related: Some(vec![]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!get_card(&c, &b.id).unwrap().related.contains(&a.id));
+
+        // 重新关联，再删 A → B 反向清理
+        update_card(
+            &c,
+            &a.id,
+            &CardPatch {
+                related: Some(vec![b.id.clone()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        delete_card(&c, &a.id).unwrap();
+        assert!(!get_card(&c, &b.id).unwrap().related.contains(&a.id));
+    }
+
+    #[test]
+    fn related_ignores_self_and_dangling() {
+        let c = mem();
+        let t = seed_topic(&c);
+        let mut card = Card::new(t.id.clone(), "A", "a");
+        let self_id = card.id.clone();
+        card.related = vec![self_id.clone(), "dangling".to_string()];
+        insert_card(&c, &card).unwrap();
+        assert!(get_card(&c, &card.id).unwrap().related.is_empty());
+    }
+
+    #[test]
+    fn upcoming_clamps_days() {
+        let c = mem();
+        assert_eq!(upcoming(&c, Utc::now().date_naive(), 0).unwrap().len(), 1);
+        assert_eq!(
+            upcoming(&c, Utc::now().date_naive(), 10000).unwrap().len(),
+            365
+        );
     }
 }

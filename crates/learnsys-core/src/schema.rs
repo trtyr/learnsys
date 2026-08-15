@@ -10,11 +10,12 @@
 //! - v4: settings 表 + 新卡/复习分离（daily new-card budget）
 //! - v5: review_logs.is_new（新卡首次复习计数，用于每日新卡预算消耗）
 //! - v6: cards.source（卡片出处：来自哪个视频/文章/文档）
+//! - v7: cards.related（关联卡片 id 列表，JSON 数组）
 
 use rusqlite::Connection;
 
 /// 当前 schema 版本（写入 `PRAGMA user_version`）。
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 
 pub const SCHEMA_SQL: &str = r#"
 PRAGMA foreign_keys = ON;
@@ -47,6 +48,7 @@ CREATE TABLE IF NOT EXISTS cards (
     code_block TEXT,
     image_urls TEXT NOT NULL DEFAULT '[]',
     source     TEXT,
+    related    TEXT NOT NULL DEFAULT '[]',
     front     TEXT NOT NULL,
     back      TEXT NOT NULL,
     ef        REAL NOT NULL DEFAULT 2.5,
@@ -126,7 +128,7 @@ CREATE TABLE IF NOT EXISTS learner_profile (
     updated     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-PRAGMA user_version = 6;
+PRAGMA user_version = 7;
 "#;
 
 pub const EXTRA_SQL: &str = r#"
@@ -158,6 +160,7 @@ pub fn init(conn: &Connection) -> Result<(), rusqlite::Error> {
     ensure_column(conn, "cards", "code_block", "TEXT")?;
     ensure_column(conn, "cards", "image_urls", "TEXT NOT NULL DEFAULT '[]'")?;
     ensure_column(conn, "cards", "source", "TEXT")?;
+    ensure_column(conn, "cards", "related", "TEXT NOT NULL DEFAULT '[]'")?;
     ensure_column(conn, "review_logs", "is_new", "INTEGER NOT NULL DEFAULT 0")?;
     conn.execute_batch("CREATE INDEX IF NOT EXISTS idx_cards_module ON cards(module_id)")?;
     conn.execute_batch(EXTRA_SQL)?;
@@ -297,5 +300,20 @@ mod tests {
         assert!(!has_column(&conn, "cards", "source"));
         init(&conn).unwrap();
         assert!(has_column(&conn, "cards", "source"));
+    }
+
+    #[test]
+    fn migrate_old_v6_db_gets_related() {
+        // 模拟旧 v6 库：cards 有 source 但无 related
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE topics (id TEXT PRIMARY KEY, name TEXT, stage TEXT DEFAULT '', status TEXT DEFAULT 'active', last_studied TEXT, next_plan TEXT DEFAULT '', created TEXT DEFAULT (date('now')));
+             CREATE TABLE modules (id TEXT PRIMARY KEY, title TEXT);
+             CREATE TABLE cards (id TEXT PRIMARY KEY, topic TEXT, module_id TEXT, tags TEXT NOT NULL DEFAULT '[]', code_block TEXT, image_urls TEXT NOT NULL DEFAULT '[]', source TEXT, front TEXT, back TEXT, ef REAL DEFAULT 2.5, interval INTEGER DEFAULT 0, reps INTEGER DEFAULT 0, due TEXT, created TEXT, updated TEXT DEFAULT (datetime('now')));",
+        )
+        .unwrap();
+        assert!(!has_column(&conn, "cards", "related"));
+        init(&conn).unwrap();
+        assert!(has_column(&conn, "cards", "related"));
     }
 }

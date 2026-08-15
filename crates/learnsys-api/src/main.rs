@@ -67,6 +67,8 @@ async fn main() {
         .route("/api/topics", post(create_topic).get(list_topics))
         .route("/api/topics/:id", get(get_topic).put(update_topic))
         .route("/api/stats", get(stats))
+        .route("/api/stats/upcoming", get(upcoming_handler))
+        .route("/api/stats/weak-topics", get(weak_topics_handler))
         .route("/api/dashboard", get(dashboard))
         .route("/api/goals", post(create_goal).get(list_goals))
         .route(
@@ -142,6 +144,7 @@ struct CreateCard {
     code_block: Option<String>,
     image_urls: Option<Vec<String>>,
     source: Option<String>,
+    related: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -164,6 +167,7 @@ struct UpdateCard {
     image_urls: Option<Vec<String>>,
     module_id: Option<String>,
     source: Option<String>,
+    related: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -181,6 +185,11 @@ struct SettingsBody {
 struct QuizQuery {
     n: Option<i64>,
     topic: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct UpcomingQuery {
+    days: Option<i64>,
 }
 
 // ────────────────────── 错误模型 ──────────────────────
@@ -257,6 +266,7 @@ async fn create_card(
     card.code_block = body.code_block.filter(|s| !s.is_empty());
     card.image_urls = body.image_urls.unwrap_or_default();
     card.source = body.source.filter(|s| !s.is_empty());
+    card.related = body.related.unwrap_or_default();
     repo::insert_card(&db, &card)?;
     name_topic(&db, &mut card);
     Ok((StatusCode::CREATED, Json(card)))
@@ -281,6 +291,7 @@ async fn update_card_handler(
         image_urls: body.image_urls,
         module_id: body.module_id,
         source: body.source,
+        related: body.related,
     };
     let mut card = repo::update_card(&db, &id, &patch)?;
     name_topic(&db, &mut card);
@@ -375,6 +386,25 @@ async fn timeline_handler(
 ) -> Result<Json<Vec<repo::TimelineEvent>>, ApiError> {
     let db = s.db.lock().unwrap();
     Ok(Json(repo::timeline(&db, Utc::now().date_naive())?))
+}
+
+async fn upcoming_handler(
+    State(s): State<AppState>,
+    Query(q): Query<UpcomingQuery>,
+) -> Result<Json<Vec<repo::UpcomingDay>>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::upcoming(
+        &db,
+        Utc::now().date_naive(),
+        q.days.unwrap_or(7),
+    )?))
+}
+
+async fn weak_topics_handler(
+    State(s): State<AppState>,
+) -> Result<Json<Vec<repo::WeakTopic>>, ApiError> {
+    let db = s.db.lock().unwrap();
+    Ok(Json(repo::weak_topics(&db)?))
 }
 
 async fn update_goal_handler(
