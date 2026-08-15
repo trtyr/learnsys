@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CaptureModal, CardEditor, CardLibrary, CardRow, GoalRow, LibraryView, QuickCapture, ReminderBadges, SessionTimeline, TimelineView } from './App'
+import { CaptureModal, CardEditor, CardLibrary, CardRow, GoalRow, LibraryView, QuickCapture, RelatedPicker, ReminderBadges, SessionTimeline, TimelineView } from './App'
 import { api } from './api'
 import type { Card, Dashboard, Goal, Resource, Session, TimelineEvent } from './types'
 
@@ -229,5 +229,31 @@ describe('CardLibrary（标签筛选）', () => {
     const link = container.querySelector('a')
     fireEvent.click(link as Element)
     await vi.waitFor(() => expect(container.textContent).toContain('编辑卡片'))
+  })
+})
+
+describe('RelatedPicker', () => {
+  it('搜索关键词 → 点选卡片 → 回调携带 id（不填 id）', async () => {
+    vi.spyOn(api.cards, 'list').mockResolvedValue([])
+    const search = vi.spyOn(api.cards, 'search').mockResolvedValue([
+      { ...baseCard, id: 'c2', front: '连接复用', back: 'RAII' },
+    ])
+    const onChange = vi.fn()
+    render(<RelatedPicker value={[]} onChange={onChange} excludeId="c1" />)
+    fireEvent.change(screen.getByPlaceholderText(/搜索要关联的卡/), { target: { value: '连接' } })
+    await vi.waitFor(() => expect(search).toHaveBeenCalledWith('连接'))
+    fireEvent.click(await screen.findByText('连接复用'))
+    expect(onChange).toHaveBeenCalledWith(['c2'])
+  })
+
+  it('显示已选 chip，点击 × 移除', async () => {
+    vi.spyOn(api.cards, 'list').mockResolvedValue([
+      { ...baseCard, id: 'c2', front: '连接复用' },
+    ])
+    const onChange = vi.fn()
+    render(<RelatedPicker value={['c2']} onChange={onChange} />)
+    await vi.waitFor(() => expect(screen.getByText('连接复用')).toBeTruthy())
+    fireEvent.click(screen.getByLabelText('移除'))
+    expect(onChange).toHaveBeenCalledWith([])
   })
 })

@@ -206,6 +206,64 @@ export function QuickCapture({ onOpen }: { onOpen: (k: CaptureKind) => void }) {
   )
 }
 
+// 关联卡片选择器：搜索 + 点选，替代手填 id（人是一等操作者，不该背 id）。
+export function RelatedPicker({ value, onChange, excludeId }: {
+  value: string[]
+  onChange: (ids: string[]) => void
+  excludeId?: string
+}) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<Card[]>([])
+  const [fronts, setFronts] = useState<Map<string, string>>(new Map())
+
+  // 拉全部卡，构建 id→正面 映射（显示已选 chip 用）
+  useEffect(() => {
+    api.cards.list().then((cs) => setFronts(new Map(cs.map((c) => [c.id, c.front])))).catch(() => {})
+  }, [])
+
+  const doSearch = (q: string) => {
+    setQuery(q)
+    const t = q.trim()
+    if (!t) { setResults([]); return }
+    api.cards.search(t).then((cs) => {
+      setResults(cs.filter((c) => c.id !== excludeId && !value.includes(c.id)))
+    }).catch(() => setResults([]))
+  }
+
+  const add = (c: Card) => {
+    if (!value.includes(c.id)) onChange([...value, c.id])
+    setResults(results.filter((r) => r.id !== c.id))
+    setQuery('')
+  }
+  const remove = (id: string) => onChange(value.filter((v) => v !== id))
+
+  return (
+    <div className="related-picker">
+      <input value={query} onChange={(e) => doSearch(e.target.value)} placeholder="搜索要关联的卡（输入正面/背面关键词）" />
+      {results.length > 0 && (
+        <div className="related-results">
+          {results.map((c) => (
+            <button type="button" key={c.id} className="related-option" onClick={() => add(c)}>
+              <span className="related-option-front">{c.front}</span>
+              {c.back && <span className="muted" style={{ fontSize: 11 }}>{c.back}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+      {value.length > 0 && (
+        <div className="related-chips">
+          {value.map((id) => (
+            <span key={id} className="chip">
+              {fronts.get(id) ?? id.slice(0, 8)}
+              <button type="button" className="chip-x" onClick={() => remove(id)} aria-label="移除">×</button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // 快捷记录弹层：记卡 / 开目标 / 记笔记。
 export function CaptureModal({ kind, onClose, onSaved }: { kind: CaptureKind; onClose: () => void; onSaved: () => void }) {
   const [topic, setTopic] = useState('rust')
@@ -219,7 +277,7 @@ export function CaptureModal({ kind, onClose, onSaved }: { kind: CaptureKind; on
   const [codeBlock, setCodeBlock] = useState('')
   const [imageUrls, setImageUrls] = useState('')
   const [source, setSource] = useState('')
-  const [related, setRelated] = useState('')
+  const [related, setRelated] = useState<string[]>([])
   const [err, setErr] = useState<string | null>(null)
 
   const submit = async () => {
@@ -232,7 +290,7 @@ export function CaptureModal({ kind, onClose, onSaved }: { kind: CaptureKind; on
           code_block: codeBlock || undefined,
           image_urls: imageUrls.split(',').map((s) => s.trim()).filter(Boolean),
           source: source || undefined,
-          related: related.split(',').map((s) => s.trim()).filter(Boolean),
+          related,
         })
       } else if (kind === 'goal' && title) {
         await api.goals.create({ title })
@@ -267,8 +325,8 @@ export function CaptureModal({ kind, onClose, onSaved }: { kind: CaptureKind; on
             <input value={imageUrls} onChange={(e) => setImageUrls(e.target.value)} placeholder="https://…" />
             <label>出处（视频 / 文章 / 文档，可选）</label>
             <input value={source} onChange={(e) => setSource(e.target.value)} placeholder="《Rust 编程之道》第 3 章" />
-            <label>关联卡片 id（逗号分隔，可选）</label>
-            <input value={related} onChange={(e) => setRelated(e.target.value)} placeholder="card-id-1, card-id-2" />
+            <label>关联卡片</label>
+            <RelatedPicker value={related} onChange={setRelated} />
           </>
         )}
         {kind === 'goal' && (
@@ -847,7 +905,7 @@ export function CardEditor({ card, onClose, onSaved }: { card: Card; onClose: ()
   const [codeBlock, setCodeBlock] = useState(card.code_block ?? '')
   const [imageUrls, setImageUrls] = useState(card.image_urls.join(', '))
   const [source, setSource] = useState(card.source ?? '')
-  const [related, setRelated] = useState(card.related.join(', '))
+  const [related, setRelated] = useState<string[]>(card.related)
   const [moduleId, setModuleId] = useState(card.module_id ?? '')
   const [modules, setModules] = useState<Module[]>([])
   useEffect(() => { api.modules.list().then(setModules).catch(() => setModules([])) }, [])
@@ -867,8 +925,8 @@ export function CardEditor({ card, onClose, onSaved }: { card: Card; onClose: ()
         <input value={imageUrls} onChange={(e) => setImageUrls(e.target.value)} placeholder="https://…" />
         <label>出处（视频 / 文章 / 文档，可选）</label>
         <input value={source} onChange={(e) => setSource(e.target.value)} placeholder="《Rust 编程之道》第 3 章" />
-        <label>关联卡片 id（逗号分隔，可选）</label>
-        <input value={related} onChange={(e) => setRelated(e.target.value)} placeholder="card-id-1, card-id-2" />
+        <label>关联卡片</label>
+        <RelatedPicker value={related} onChange={setRelated} excludeId={card.id} />
         <label>挂到模块</label>
         <select value={moduleId} onChange={(e) => setModuleId(e.target.value)}>
           <option value="">（散卡，不挂模块）</option>
@@ -883,7 +941,7 @@ export function CardEditor({ card, onClose, onSaved }: { card: Card; onClose: ()
               image_urls: imageUrls.split(',').map((s) => s.trim()).filter(Boolean),
               module_id: moduleId,
               source: source || undefined,
-              related: related.split(',').map((s) => s.trim()).filter(Boolean),
+              related,
             })
             onSaved()
           }}>保存</button>

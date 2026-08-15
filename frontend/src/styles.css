@@ -251,6 +251,32 @@ body {
 .form-col textarea { resize: vertical; min-height: 80px; }
 .form-col input:focus, .form-col select:focus, .form-col textarea:focus { border-color: var(--amber); }
 
+/* ───────────────── 关联卡片选择器 ───────────────── */
+.related-picker { display: flex; flex-direction: column; gap: 6px; }
+.related-results {
+  display: flex; flex-direction: column; gap: 2px; max-height: 180px; overflow-y: auto;
+  border: 1px solid var(--border); border-radius: 4px; padding: 4px;
+}
+.related-option {
+  display: flex; gap: 8px; align-items: baseline; text-align: left; width: 100%;
+  background: #141414; border: 1px solid transparent; border-radius: 3px; padding: 6px 8px;
+  cursor: pointer; color: var(--text); font-family: var(--font-ui); font-size: 13px;
+}
+.related-option:hover { border-color: var(--amber); }
+.related-option-front { font-weight: 500; }
+.related-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(245, 166, 35, .12); color: var(--amber);
+  border: 1px solid rgba(245, 166, 35, .3); border-radius: 999px;
+  padding: 2px 8px; font-size: 12px; font-family: var(--font-ui);
+}
+.chip-x {
+  background: none; border: none; color: inherit; cursor: pointer;
+  font-size: 14px; line-height: 1; padding: 0 2px;
+}
+.chip-x:hover { color: var(--red); }
+
 /* ───────────────── footer ───────────────── */
 .footer {
   margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border);
