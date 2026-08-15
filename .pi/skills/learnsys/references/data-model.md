@@ -31,6 +31,8 @@ LearnerProfile（单例画像，id=1）
 | `tags` | list[str] | 标签 |
 | `code_block` | str\|null | 代码块 |
 | `image_urls` | list[str] | 配图 |
+| `source` | str\|null | 出处（视频/文章/文档） |
+| `related` | list[str] | 关联卡片 id（双向） |
 
 ### Topic（主题/领域）
 
@@ -74,4 +76,5 @@ LearnerProfile（单例画像，id=1）
 - **新卡 vs 复习**：`reps=0` 是新卡（走 `/cards/new`，受 `new_per_day` 预算，首次复习消耗预算）；`reps>0` 且到期走 `/cards/due`。
 - **leech**：EF<1.5 或最近 4 次复习全失败（quality<3）标记，只展示不自动处置。
 - **级联删除**：删 goal → 删其 pathway → 删 pathway_modules；删 module → 卡片降为散卡（module_id 置 null）；删 card → 删其 review_logs。
+- **关联双向**：`related` 是双向链接——A 关联 B 时 B 自动反链 A；建卡/编辑/删卡都在事务内维护两端；自关联与悬空 id 会被自动过滤。
 - **依赖**：pathway 内 `depends_on` 是"建议"而非强制——`next` 会跳过未掌握但可跳的前置。

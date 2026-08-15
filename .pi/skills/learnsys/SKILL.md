@@ -36,8 +36,10 @@ python3 scripts/learnsys.py <资源> <子命令> [参数]
 ## 快速上手
 
 ```bash
-# 记一张卡（topic 不存在会自动建）
-python3 scripts/learnsys.py card create --topic rust --front "所有权是什么" --back "独占"
+# 记一张卡（topic 不存在会自动建；可带标签/代码块/出处/关联）
+python3 scripts/learnsys.py card create --topic rust --front "所有权是什么" --back "独占" \
+    --tags rust,基础 --code-block "fn main() {}" --source "《Rust 编程之道》第 3 章"
+python3 scripts/learnsys.py card create --topic rust --front "连接复用" --back "RAII" --related <卡id>
 
 # 今天要复习的卡 + 复习一张
 python3 scripts/learnsys.py card new
@@ -46,6 +48,10 @@ python3 scripts/learnsys.py card review <id> 5
 # 看今日概览 + 时间线
 python3 scripts/learnsys.py dashboard
 python3 scripts/learnsys.py timeline
+
+# 复习洞察：未来 7 天排期 + 薄弱点
+python3 scripts/learnsys.py upcoming --days 7
+python3 scripts/learnsys.py weak-topics
 
 # 建一条学习链路：目标 → 路径 → 模块 → 挂卡
 python3 scripts/learnsys.py goal create "学 Rust"
@@ -72,7 +78,7 @@ python3 scripts/learnsys.py backup
 | `profile` | `get` `update` |
 | `settings` | `get` `set` |
 | `quiz` | （无子命令，`--n` / `--topic`） |
-| — | `stats` `dashboard` `heatmap` `export` `export-markdown` `backup` `timeline` |
+| — | `stats` `dashboard` `heatmap` `upcoming` `weak-topics` `export` `export-markdown` `backup` `timeline` |
 
 每个命令的具体参数和 payload 见 [references/api.md](references/api.md)；实体字段与关系见 [references/data-model.md](references/data-model.md)。
 

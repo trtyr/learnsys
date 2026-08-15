@@ -268,6 +268,9 @@ def main():
     sub.add_parser("dashboard", help="看板聚合")
     h = sub.add_parser("heatmap", help="复习热力")
     h.add_argument("--days", type=int, default=90)
+    up = sub.add_parser("upcoming", help="未来 N 天到期排期")
+    up.add_argument("--days", type=int, default=7)
+    sub.add_parser("weak-topics", help="薄弱点聚类（leech/低 EF 按主题）")
     sub.add_parser("export", help="全量 JSON 导出")
     sub.add_parser("export-markdown", help="markdown 导出")
     sub.add_parser("backup", help="SQLite 快照备份")
@@ -414,6 +417,10 @@ def main():
         out(call("GET", "/api/dashboard"))
     elif c == "heatmap":
         out(call("GET", f"/api/stats/heatmap?days={a.days}"))
+    elif c == "upcoming":
+        out(call("GET", f"/api/stats/upcoming?days={a.days}"))
+    elif c == "weak-topics":
+        out(call("GET", "/api/stats/weak-topics"))
     elif c == "export":
         out(call("GET", "/api/export"))
     elif c == "export-markdown":
