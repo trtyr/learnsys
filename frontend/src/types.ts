@@ -8,6 +8,7 @@ export interface Card {
   tags: string[];
   code_block: string | null;
   image_urls: string[];
+  source: string | null;
 }
 
 export type TopicStatus = 'active' | 'completed' | 'paused'

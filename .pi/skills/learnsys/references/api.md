@@ -6,7 +6,7 @@
 
 | Method | Path | 说明 | Body / 参数 |
 |--------|------|------|-------------|
-| POST | `/api/cards` | 建卡（topic 用名，不存在自动建） | `{topic, front, back, tags?}` |
+| POST | `/api/cards` | 建卡（topic 用名，不存在自动建） | `{topic, front, back, tags?, code_block?, image_urls?, source?}` |
 | GET | `/api/cards` | 列卡 | `?topic=`（主题名） |
 | GET | `/api/cards/due` | 今日待复习（reps>0 且到期） | `?topic=` |
 | GET | `/api/cards/search` | 搜索正面/背面/标签 | `?q=`（必填）、`?topic=` |

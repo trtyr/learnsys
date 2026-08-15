@@ -2,8 +2,15 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { api } from './api'
 import type { Card, Dashboard, Goal, GoalProgress, HeatmapDay, LearnerProfile, Module, ModuleMastery, Pathway, PathwayModule, Resource, Session, TimelineEvent } from './types'
 
-type Tab = 'today' | 'library' | 'review'
+type Tab = 'today' | 'cards' | 'library' | 'review'
 type CaptureKind = 'card' | 'goal' | 'note'
+
+const NAV: { id: Tab; label: string }[] = [
+  { id: 'today', label: '今天' },
+  { id: 'cards', label: '卡片库' },
+  { id: 'library', label: '学习库' },
+  { id: 'review', label: '回顾' },
+]
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('today')
@@ -27,42 +34,147 @@ export default function App() {
   if (loading || !dash) return <Shell><div className="loading">学习系统启动中…</div></Shell>
 
   const today = new Date().toISOString().slice(0, 10)
+  const badge = (t: Tab): number => {
+    if (t === 'today') return dash.due_today
+    if (t === 'cards') return dash.stats.total_cards
+    return 0
+  }
 
   return (
     <Shell>
-      <header className="header">
-        <h1>学习系统<span className="muted"> / 今天 {today}</span></h1>
-        <div className="header-stats">
-          <ReminderBadges dash={dash} />
-          <QuickCapture onOpen={setCapture} />
-          <button className="ghost-btn" style={{ marginTop: 0 }} onClick={() => setShowProfile(!showProfile)}>站务</button>
+      <aside className="sidebar">
+        <div className="sidebar-brand">
+          <span>学习系统</span>
+          <span className="sub">{today} · 🔥 {dash.streak} 天</span>
         </div>
-      </header>
-
-      {capture && <CaptureModal kind={capture} onClose={() => setCapture(null)} onSaved={() => { setCapture(null); reload(); setRefreshKey((k) => k + 1) }} />}
-
-      <nav className="tabs">
-        {(['today', 'library', 'review'] as Tab[]).map((t) => (
-          <button key={t} className={`tab ${tab === t ? 'active' : ''}`} onClick={() => setTab(t)}>
-            {{ today: '今天 / Today', library: '学习库 / Library', review: '回顾 / Review' }[t]}
+        <nav className="sidebar-nav">
+          {NAV.map((n) => (
+            <button key={n.id} className={`sidebar-item ${tab === n.id ? 'active' : ''}`} onClick={() => setTab(n.id)}>
+              <span>{n.label}</span>
+              {badge(n.id) > 0 && <span className="badge">{badge(n.id)}</span>}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-footer">
+          <button className={`sidebar-item ${showProfile ? 'active' : ''}`} onClick={() => setShowProfile(!showProfile)}>
+            <span>站务 / 画像</span>
           </button>
-        ))}
-      </nav>
-
-      <main>
-        {showProfile && <ProfileView profile={profile} onRefresh={reload} />}
-        {tab === 'today' && <TodayView key={refreshKey} dash={dash} onRefresh={reload} />}
-        {tab === 'library' && <LibraryView onRefresh={reload} />}
-        {tab === 'review' && <ProgressView dash={dash} />}
-      </main>
-
-      <footer className="footer">学习系统 · 你是主人 · today {today}</footer>
+        </div>
+      </aside>
+      <div className="main">
+        <header className="main-header">
+          <div className="left">
+            <ReminderBadges dash={dash} />
+          </div>
+          <div className="right">
+            <QuickCapture onOpen={setCapture} />
+          </div>
+        </header>
+        {capture && <CaptureModal kind={capture} onClose={() => setCapture(null)} onSaved={() => { setCapture(null); reload(); setRefreshKey((k) => k + 1) }} />}
+        <div className="main-content">
+          {showProfile && <ProfileView profile={profile} onRefresh={reload} />}
+          {tab === 'today' && <TodayView key={refreshKey} dash={dash} onRefresh={reload} />}
+          {tab === 'cards' && <CardLibrary />}
+          {tab === 'library' && <LibraryView onRefresh={reload} />}
+          {tab === 'review' && <ProgressView dash={dash} />}
+        </div>
+      </div>
     </Shell>
   )
 }
 
 function Shell({ children }: { children: ReactNode }) {
-  return <div className="wrap">{children}</div>
+  return <div className="app">{children}</div>
+}
+
+// 卡片库：全部卡片，多维度筛选（复习状态 / 主题 / 到期 / 搜索）。
+export function CardLibrary() {
+  const [cards, setCards] = useState<Card[]>([])
+  const [status, setStatus] = useState<'all' | 'new' | 'reviewed'>('all')
+  const [topic, setTopic] = useState('')
+  const [due, setDue] = useState<'all' | 'today' | 'overdue'>('all')
+  const [tag, setTag] = useState('')
+  const [q, setQ] = useState('')
+
+  useEffect(() => { api.cards.list().then(setCards).catch(() => setCards([])) }, [])
+
+  const today = new Date().toISOString().slice(0, 10)
+  const topics = Array.from(new Set(cards.map((c) => c.topic))).sort()
+  const allTags = Array.from(new Set(cards.flatMap((c) => c.tags))).sort()
+  const newCount = cards.filter((c) => c.reps === 0).length
+  const overdueCount = cards.filter((c) => c.due < today).length
+
+  const filtered = cards.filter((c) => {
+    if (status === 'new' && c.reps > 0) return false
+    if (status === 'reviewed' && c.reps === 0) return false
+    if (topic && c.topic !== topic) return false
+    if (tag && !c.tags.includes(tag)) return false
+    if (due === 'today' && c.due !== today) return false
+    if (due === 'overdue' && c.due >= today) return false
+    if (q) {
+      const s = q.toLowerCase()
+      const hit = c.front.toLowerCase().includes(s) || c.back.toLowerCase().includes(s) || c.tags.some((t) => t.toLowerCase().includes(s))
+      if (!hit) return false
+    }
+    return true
+  })
+
+  const statusTabs = [
+    { id: 'all' as const, label: '全部', n: cards.length },
+    { id: 'new' as const, label: '未复习', n: newCount },
+    { id: 'reviewed' as const, label: '已复习', n: cards.length - newCount },
+  ]
+
+  return (
+    <div>
+      <div className="filter-bar">
+        {statusTabs.map((t) => (
+          <button key={t.id} className={`filter-btn ${status === t.id ? 'active' : ''}`} onClick={() => setStatus(t.id)}>
+            {t.label} <span className="count">{t.n}</span>
+          </button>
+        ))}
+        <select className="filter-select" value={topic} onChange={(e) => setTopic(e.target.value)}>
+          <option value="">全部主题</option>
+          {topics.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select className="filter-select" value={due} onChange={(e) => setDue(e.target.value as 'all' | 'today' | 'overdue')}>
+          <option value="all">全部到期</option>
+          <option value="today">今天到期</option>
+          <option value="overdue">已逾期 {overdueCount}</option>
+        </select>
+        <select className="filter-select" value={tag} onChange={(e) => setTag(e.target.value)}>
+          <option value="">全部标签</option>
+          {allTags.map((t) => <option key={t} value={t}>#{t}</option>)}
+        </select>
+        <input className="filter-input" placeholder="搜索卡片…" value={q} onChange={(e) => setQ(e.target.value)} />
+      </div>
+      <div className="panel">
+        <div className="panel-body" style={{ padding: 0 }}>
+          {filtered.length === 0 ? (
+            <div className="loading">没有符合条件的卡片。</div>
+          ) : (
+            <ul className="card-list" style={{ padding: '0 16px' }}>
+              {filtered.map((c) => (
+                <li key={c.id} className="card-item" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 2 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span className={`tag ${c.reps === 0 ? 'amber' : 'green'}`}>{c.reps === 0 ? '新卡' : `已复习 ${c.reps} 次`}</span>
+                    <span className="tag muted">{c.topic}</span>
+                    {c.tags.map((t) => <span key={t} className="tag" style={{ color: 'var(--accent)', background: 'rgba(192,192,192,.12)' }}>#{t}</span>)}
+                    <span className={`tag ${c.due < today ? 'red' : c.due === today ? 'amber' : 'muted'}`}>到期 {c.due}</span>
+                    <span className="muted" style={{ fontSize: 11, fontFamily: 'var(--font-flap)' }}>EF {c.ef.toFixed(1)}</span>
+                  </div>
+                  <div style={{ fontWeight: 500 }}>{c.front}</div>
+                  {c.back && <div className="muted" style={{ fontSize: 12 }}>{c.back}</div>}
+                  {c.code_block && <pre style={{ marginTop: 6, padding: 6, background: '#111', borderRadius: 3, fontSize: 11, overflowX: 'auto', fontFamily: 'var(--font-flap)' }}>{c.code_block}</pre>}
+                  {c.source && <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>出处：{c.source}</div>}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // 常驻快捷记录入口。
@@ -85,13 +197,23 @@ export function CaptureModal({ kind, onClose, onSaved }: { kind: CaptureKind; on
   const [noteTitle, setNoteTitle] = useState('')
   const [notes, setNotes] = useState('')
   const [url, setUrl] = useState('')
+  const [tags, setTags] = useState('')
+  const [codeBlock, setCodeBlock] = useState('')
+  const [imageUrls, setImageUrls] = useState('')
+  const [source, setSource] = useState('')
   const [err, setErr] = useState<string | null>(null)
 
   const submit = async () => {
     setErr(null)
     try {
       if (kind === 'card' && front) {
-        await api.cards.create({ topic, front, back })
+        await api.cards.create({
+          topic, front, back,
+          tags: tags.split(',').map((s) => s.trim()).filter(Boolean),
+          code_block: codeBlock || undefined,
+          image_urls: imageUrls.split(',').map((s) => s.trim()).filter(Boolean),
+          source: source || undefined,
+        })
       } else if (kind === 'goal' && title) {
         await api.goals.create({ title })
       } else if (kind === 'note' && noteTitle) {
@@ -117,6 +239,14 @@ export function CaptureModal({ kind, onClose, onSaved }: { kind: CaptureKind; on
             <textarea rows={2} value={front} onChange={(e) => setFront(e.target.value)} autoFocus />
             <label>背面（答案）</label>
             <textarea rows={2} value={back} onChange={(e) => setBack(e.target.value)} />
+            <label>标签（逗号分隔）</label>
+            <input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="rust, 基础" />
+            <label>代码块（可选）</label>
+            <textarea rows={3} value={codeBlock} onChange={(e) => setCodeBlock(e.target.value)} placeholder="fn main() {}" style={{ fontFamily: 'var(--font-flap)', fontSize: 12 }} />
+            <label>图片 URL（逗号分隔，可选）</label>
+            <input value={imageUrls} onChange={(e) => setImageUrls(e.target.value)} placeholder="https://…" />
+            <label>出处（视频 / 文章 / 文档，可选）</label>
+            <input value={source} onChange={(e) => setSource(e.target.value)} placeholder="《Rust 编程之道》第 3 章" />
           </>
         )}
         {kind === 'goal' && (
@@ -519,11 +649,13 @@ function TodayView({ dash, onRefresh }: { dash: Dashboard; onRefresh: () => void
 
   return (
     <div>
-      <div className="stats-strip">
-        <Stat label="待出发" value={dash.due_today} accent={dash.due_today > 0 ? 'warn' : ''} />
-        <Stat label="延误" value={dash.due_soon} accent={dash.due_soon > 0 ? 'hot' : ''} />
-        <Stat label="总计" value={dash.stats.total_cards} />
-        <Stat label="平均 EF" value={dash.stats.avg_ef.toFixed(2)} />
+      <div className="next-up">
+        <div className="next-head">接下来学什么</div>
+        <div className="next-metrics">
+          <span className="next-metric"><b style={dash.due_today > 0 ? { color: 'var(--amber)' } : undefined}>{dash.due_today}</b>待复习</span>
+          <span className="next-metric"><b>{dash.stats.new_cards}</b>新卡</span>
+          <span className="next-metric muted" style={{ fontSize: 12 }}>共 {dash.stats.total_cards} 张 · EF {dash.stats.avg_ef.toFixed(2)}</span>
+        </div>
       </div>
 
       <div className="panel">
@@ -692,6 +824,7 @@ export function CardEditor({ card, onClose, onSaved }: { card: Card; onClose: ()
   const [tags, setTags] = useState(card.tags.join(', '))
   const [codeBlock, setCodeBlock] = useState(card.code_block ?? '')
   const [imageUrls, setImageUrls] = useState(card.image_urls.join(', '))
+  const [source, setSource] = useState(card.source ?? '')
   const [moduleId, setModuleId] = useState(card.module_id ?? '')
   const [modules, setModules] = useState<Module[]>([])
   useEffect(() => { api.modules.list().then(setModules).catch(() => setModules([])) }, [])
@@ -709,6 +842,8 @@ export function CardEditor({ card, onClose, onSaved }: { card: Card; onClose: ()
         <textarea rows={3} value={codeBlock} onChange={(e) => setCodeBlock(e.target.value)} placeholder="fn main() {}" style={{ fontFamily: 'var(--font-flap)', fontSize: 12 }} />
         <label>图片 URL（逗号分隔）</label>
         <input value={imageUrls} onChange={(e) => setImageUrls(e.target.value)} placeholder="https://…" />
+        <label>出处（视频 / 文章 / 文档，可选）</label>
+        <input value={source} onChange={(e) => setSource(e.target.value)} placeholder="《Rust 编程之道》第 3 章" />
         <label>挂到模块</label>
         <select value={moduleId} onChange={(e) => setModuleId(e.target.value)}>
           <option value="">（散卡，不挂模块）</option>
@@ -722,21 +857,13 @@ export function CardEditor({ card, onClose, onSaved }: { card: Card; onClose: ()
               code_block: codeBlock,
               image_urls: imageUrls.split(',').map((s) => s.trim()).filter(Boolean),
               module_id: moduleId,
+              source: source || undefined,
             })
             onSaved()
           }}>保存</button>
           <button className="ghost-btn" onClick={onClose}>取消</button>
         </div>
       </div>
-    </div>
-  )
-}
-
-function Stat({ label, value, accent }: { label: string; value: ReactNode; accent?: string }) {
-  return (
-    <div className={`stat-item ${accent || ''}`}>
-      <div className="stat-value">{value}</div>
-      <div className="stat-label">{label}</div>
     </div>
   )
 }

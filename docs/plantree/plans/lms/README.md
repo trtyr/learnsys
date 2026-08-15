@@ -32,7 +32,8 @@
 | [topics/data-export-backup.md](topics/data-export-backup.md) | Phase I 数据层（导出/备份） |
 | [topics/experience-and-quiz.md](topics/experience-and-quiz.md) | Phase J 体验层（提醒/streak/测验） |
 | [topics/workbench-redesign.md](topics/workbench-redesign.md) | 工作台重构（今天/学习库/回顾 + 快捷记录） |
-| [decisions/](decisions/) | 方向决策（001 方向 / 002 A–F / 003 G–J / 004 定位翻转） |
+| [topics/card-enrichment.md](topics/card-enrichment.md) | 卡片内容层增肥（P0/P1/P2） |
+| [decisions/](decisions/) | 方向决策（001 方向 / 002 A–F / 003 G–J / 004 定位翻转 / 005 card-first） |
 | [open-questions.md](open-questions.md) | 待决策（已全部收敛） |
 
 ## 与 core 的关系
@@ -43,5 +44,5 @@
 
 ## 当前状态
 
-- **Phase**：🟢 Phase A–J 全部落地（核心 LMS + 四层补强 12 项）
-- **Next**：按需推进 Deferred（多用户 / 知识图谱 / apkg 等）
+- **Phase**：🔵 P0 卡片内容层增肥（decision 005 card-first）
+- **Next**：P0 建卡入口补齐 + 出处 + 标签浏览 → P1 知识连接 → P2 复习洞察

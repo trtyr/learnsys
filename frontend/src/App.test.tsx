@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CaptureModal, CardEditor, CardRow, GoalRow, LibraryView, QuickCapture, ReminderBadges, SessionTimeline, TimelineView } from './App'
+import { CaptureModal, CardEditor, CardLibrary, CardRow, GoalRow, LibraryView, QuickCapture, ReminderBadges, SessionTimeline, TimelineView } from './App'
 import { api } from './api'
 import type { Card, Dashboard, Goal, Resource, Session, TimelineEvent } from './types'
 
@@ -10,6 +10,7 @@ const baseCard: Card = {
   ef: 2.5, interval: 0, reps: 0,
   due: '2026-08-14', created: '2026-08-14', updated: '2026-08-14T00:00:00Z',
   module_id: null, tags: ['rust'], code_block: 'fn main() {}', image_urls: ['https://e.com/a.png'],
+  source: null,
 }
 
 beforeEach(() => {
@@ -113,14 +114,24 @@ describe('QuickCapture', () => {
 })
 
 describe('CaptureModal', () => {
-  it('记卡提交调用 cards.create', async () => {
+  it('记卡提交调用 cards.create（含 tags/code_block/source）', async () => {
     const create = vi.spyOn(api.cards, 'create').mockResolvedValue({} as Card)
     const { container } = render(<CaptureModal kind="card" onClose={() => {}} onSaved={() => {}} />)
     const tas = container.querySelectorAll('textarea')
     fireEvent.change(tas[0], { target: { value: 'q' } })
     fireEvent.change(tas[1], { target: { value: 'a' } })
+    fireEvent.change(screen.getByPlaceholderText('rust, 基础'), { target: { value: 'rust, 基础' } })
+    fireEvent.change(tas[2], { target: { value: 'fn main() {}' } })
+    fireEvent.change(screen.getByPlaceholderText('https://…'), { target: { value: 'https://e.com/a.png' } })
+    fireEvent.change(screen.getByPlaceholderText('《Rust 编程之道》第 3 章'), { target: { value: '《Rust 编程之道》第 3 章' } })
     fireEvent.click(screen.getByText('保存'))
-    await vi.waitFor(() => expect(create).toHaveBeenCalledWith({ topic: 'rust', front: 'q', back: 'a' }))
+    await vi.waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      topic: 'rust', front: 'q', back: 'a',
+      tags: ['rust', '基础'],
+      code_block: 'fn main() {}',
+      image_urls: ['https://e.com/a.png'],
+      source: '《Rust 编程之道》第 3 章',
+    })))
   })
 
   it('开目标提交调用 goals.create', async () => {
@@ -177,5 +188,22 @@ describe('LibraryView（笔记闭环）', () => {
     render(<LibraryView onRefresh={() => {}} />)
     await screen.findByText('所有权要点')
     expect(screen.getByText('独占与借用')).toBeTruthy()
+  })
+})
+
+describe('CardLibrary（标签筛选）', () => {
+  it('按标签筛选卡片', async () => {
+    vi.spyOn(api.cards, 'list').mockResolvedValue([
+      { ...baseCard, id: 'c1', front: '所有权', tags: ['rust'] },
+      { ...baseCard, id: 'c2', front: '连接复用', tags: ['async'] },
+    ])
+    const { container } = render(<CardLibrary />)
+    await screen.findByText('所有权')
+    expect(screen.getByText('连接复用')).toBeTruthy()
+
+    const selects = container.querySelectorAll('select')
+    fireEvent.change(selects[2], { target: { value: 'rust' } })
+    expect(screen.getByText('所有权')).toBeTruthy()
+    expect(screen.queryByText('连接复用')).toBeNull()
   })
 })

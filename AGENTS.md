@@ -22,7 +22,7 @@ headless 学习数据平台：**确定性的归平台**（SM-2 调度、统计�
 ```bash
 # 后端
 cargo build --workspace
-cargo test --workspace          # 30 用例，core: entity/schema/sm2/repo + migrate 回导
+cargo test --workspace          # 35 用例，core: entity/schema/sm2/repo + migrate 回导
 cargo clippy --workspace --all-targets
 cargo fmt --check
 
@@ -44,7 +44,7 @@ CI 在 [.github/workflows/ci.yml](.github/workflows/ci.yml)，push 到 `master` 
 
 依赖方向严格单向：`api → core`、`migrate → core`；`frontend → 后端` 只走 REST，绝不直接碰 SQLite。
 
-- `crates/learnsys-core/src/`：`entity`（实体类型）、`sm2`（调度算法）、`repo`（仓储 + 聚合 + 搜索/导出/备份/streak/quiz/settings/每日新卡预算/timeline）、`schema`（DDL + 版本迁移，当前 v5）、`db`（连接/路径）。
+- `crates/learnsys-core/src/`：`entity`（实体类型）、`sm2`（调度算法）、`repo`（仓储 + 聚合 + 搜索/导出/备份/streak/quiz/settings/每日新卡预算/timeline）、`schema`（DDL + 版本迁移，当前 v6）、`db`（连接/路径）。
 - `crates/learnsys-api/src/main.rs`：路由 + handlers + DTO + 错误映射。一个 handler 一个职责，别把业务逻辑塞进 API 层——复用 `core::repo`。
 - `frontend/src/`：`api.ts`（类型化客户端）、`types.ts`（镜像 core 实体）、`App.tsx`（视图）。
 
@@ -70,8 +70,8 @@ CI 在 [.github/workflows/ci.yml](.github/workflows/ci.yml)，push 到 `master` 
 
 ## 初始化状态（2026-08-14）
 
-- 基线已验证：`cargo test` 31 过、`clippy` 无警告、`fmt` 干净、`tsc`/`eslint`/`vitest`（19 用例，含 API 契约 + CardEditor/CardRow/ReminderBadges/SessionTimeline/TimelineView/QuickCapture/CaptureModal/GoalRow 组件测试）/`vite build` 全过；`./scripts/e2e.sh` 全链路通过。
-- Phase A–J 全落地：内容层（编辑/搜索/标签/多模态）、调度层（新卡复习分离+每日预算/leech）、数据层（导出/备份）、体验层（提醒/streak/测验）。schema v5。
+- 基线已验证：`cargo test` 35 过、`clippy` 无警告、`fmt` 干净、`tsc`/`eslint`/`vitest`（23 用例，含 API 契约 + CardEditor/CardRow/ReminderBadges/SessionTimeline/TimelineView/QuickCapture/CaptureModal/GoalRow/CardLibrary 组件测试）/`vite build` 全过；`./scripts/e2e.sh` 全链路通过。
+- Phase A–J 全落地：内容层（编辑/搜索/标签/多模态）、调度层（新卡复习分离+每日预算/leech）、数据层（导出/备份）、体验层（提醒/streak/测验）。schema v6（卡片加 source 出处）。
 - **定位翻转**（decision 004）：个人学习系统，人是一等操作者、AI 是可选客户；前端从"只读看板"重构为"工作台"（今天 / 学习库 / 回顾 + 顶部快捷记录），后端补 `/api/timeline` 今日活动时间线。
 - 前端依赖审计：`npm audit` **0 vulnerabilities**（vite 7.3.6 + `@vitejs/plugin-react` 5.2.0；CI Node 22）。
 - 已知未决（open items）：

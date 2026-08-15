@@ -89,7 +89,10 @@ def main():
     p_cc.add_argument("--topic", required=True)
     p_cc.add_argument("--front", required=True)
     p_cc.add_argument("--back", required=True)
-    p_cc.add_argument("--tags")
+    p_cc.add_argument("--tags", help="逗号分隔标签")
+    p_cc.add_argument("--code-block", help="代码块")
+    p_cc.add_argument("--image-urls", help="逗号分隔图片 URL")
+    p_cc.add_argument("--source", help="出处（视频/文章/文档）")
 
     p_cl = cs.add_parser("list", help="列卡")
     add_topic_opt(p_cl)
@@ -273,7 +276,11 @@ def main():
     if c == "card":
         s2 = a.sub
         if s2 == "create":
-            out(call("POST", "/api/cards", {"topic": a.topic, "front": a.front, "back": a.back, "tags": split_csv(a.tags)}))
+            out(call("POST", "/api/cards", {
+                "topic": a.topic, "front": a.front, "back": a.back,
+                "tags": split_csv(a.tags), "code_block": a.code_block,
+                "image_urls": split_csv(a.image_urls), "source": a.source,
+            }))
         elif s2 == "list":
             out(call("GET", f"/api/cards?topic={a.topic}" if a.topic else "/api/cards"))
         elif s2 == "get":

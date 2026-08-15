@@ -36,8 +36,8 @@ export const api = {
     list: (topic?: string) => get<Card[]>(`/cards${topic ? `?topic=${encodeURIComponent(topic)}` : ''}`),
     get: (id: string) => get<Card>(`/cards/${id}`),
     review: (id: string, quality: number) => post<Card>(`/cards/${id}/review`, { quality }),
-    create: (body: { topic: string; front: string; back: string; tags?: string[] }) => post<Card>('/cards', body),
-    update: (id: string, patch: { front?: string; back?: string; topic?: string; tags?: string[]; code_block?: string; image_urls?: string[]; module_id?: string }) =>
+    create: (body: { topic: string; front: string; back: string; tags?: string[]; code_block?: string; image_urls?: string[]; source?: string }) => post<Card>('/cards', body),
+    update: (id: string, patch: { front?: string; back?: string; topic?: string; tags?: string[]; code_block?: string; image_urls?: string[]; module_id?: string; source?: string }) =>
       put<Card>(`/cards/${id}`, patch),
     search: (q: string, topic?: string) =>
       get<Card[]>(`/cards/search?q=${encodeURIComponent(q)}${topic ? `&topic=${encodeURIComponent(topic)}` : ''}`),

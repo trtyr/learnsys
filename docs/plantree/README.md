@@ -15,7 +15,7 @@
 | Plan | Status | Current Phase | Last Landed | Next Target |
 |------|--------|---------------|-------------|-------------|
 | [core](plans/core/README.md) | 🟢 Done (MVP) | Phase 0–3 已交付 | commit 784f13d + 前端 | Phase 4 接入验证 |
-| [lms](plans/lms/README.md) | 🟢 Done | Phase A–J 全落地 | decision 003 (Phase J) | Deferred 项按需 |
+| [lms](plans/lms/README.md) | 🔵 In Progress | P0 卡片内容层增肥 | decision 005 (card-first) | 建卡入口补齐 + 标签浏览 |
 
 ## 怎么读这棵树
 
@@ -31,4 +31,4 @@
 ## 当前模式
 
 - `core`：`execute-ready`（MVP Phase 0–3 已交付，见 [core decision 003](plans/core/decisions/003-mvp-shipped.md)）
-- `lms`：`execute-ready`（Phase A–J 全落地，OQ 全收敛，见 [decision 003](plans/lms/decisions/003-gap-fill-implementation-choices.md)）
+- `lms`：`shape-plan`（P0 卡片内容层增肥，见 [decision 005](plans/lms/decisions/005-card-first-content-focus.md)）

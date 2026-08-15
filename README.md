@@ -55,7 +55,7 @@
 | 层 | 栈 |
 |----|----|
 | 后端 | Rust (edition 2021) + axum 0.7 + tokio |
-| 存储 | SQLite（rusqlite bundled，schema v5） |
+| 存储 | SQLite（rusqlite bundled，schema v6） |
 | 前端 | React 18 + Vite 7 + TypeScript |
 | 部署 | Docker 多阶段，单容器 |
 
@@ -99,13 +99,13 @@ docker compose up -d --build   # 构建 + 启动
 
 | Method | Path | 作用 |
 |--------|------|------|
-| POST | `/api/cards` | 建卡 `{topic, front, back}`（topic 用名，不存在自动建主题） |
+| POST | `/api/cards` | 建卡 `{topic, front, back, tags?, code_block?, image_urls?, source?}`（topic 用名，不存在自动建主题） |
 | GET | `/api/cards` | 列卡 `?topic=` |
 | GET | `/api/cards/due` | 今日待复习 `?topic=` |
-| GET | `/api/cards/search` | 搜索 `?q=` 匹配正面 / 背面 / 标签 |
+| GET | `/api/cards/search` | 搜索 `?q=` 匹配正面 / 背面 / 标签 / 出处 |
 | GET | `/api/cards/new` | 今日新卡（默认 `new_per_day`，复习消耗预算） |
 | GET | `/api/cards/leeches` | 顽固卡列表（EF<1.5 或连续失败 ≥4） |
-| GET / PUT / DELETE | `/api/cards/:id` | 取 / 编辑 / 删卡（编辑不改 SM-2） |
+| GET / PUT / DELETE | `/api/cards/:id` | 取 / 编辑 / 删卡（编辑不改 SM-2，可改标签/代码块/图片/出处） |
 | POST | `/api/cards/:id/review` | 记录复习 `{quality:0-5}` → SM-2 |
 | POST / GET | `/api/topics` | 建 / 列主题 |
 | GET / PUT | `/api/topics/:id` | 取 / 更新主题 |

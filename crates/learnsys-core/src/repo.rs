@@ -86,6 +86,7 @@ fn card_from_row(r: &Row) -> rusqlite::Result<Card> {
         tags: parse_json_list(&tags),
         code_block: r.get("code_block")?,
         image_urls: parse_json_list(&image_urls),
+        source: r.get("source")?,
     })
 }
 
@@ -123,8 +124,8 @@ fn log_from_row(r: &Row) -> rusqlite::Result<ReviewLog> {
 pub fn insert_card(conn: &Connection, c: &Card) -> Result<()> {
     conn.execute(
         "INSERT OR REPLACE INTO cards
-         (id, topic, module_id, tags, code_block, image_urls, front, back, ef, interval, reps, due, created, updated)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+         (id, topic, module_id, tags, code_block, image_urls, source, front, back, ef, interval, reps, due, created, updated)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         params![
             c.id,
             c.topic,
@@ -132,6 +133,7 @@ pub fn insert_card(conn: &Connection, c: &Card) -> Result<()> {
             serde_json::to_string(&c.tags).unwrap_or_else(|_| String::from("[]")),
             c.code_block,
             serde_json::to_string(&c.image_urls).unwrap_or_else(|_| String::from("[]")),
+            c.source,
             c.front,
             c.back,
             c.ef,
@@ -375,15 +377,23 @@ pub fn update_card(conn: &Connection, id: &str, patch: &CardPatch) -> Result<Car
             Some(mid.clone())
         };
     }
+    if let Some(src) = &patch.source {
+        card.source = if src.is_empty() {
+            None
+        } else {
+            Some(src.clone())
+        };
+    }
     card.updated = Utc::now();
     conn.execute(
-        "UPDATE cards SET topic=?, tags=?, code_block=?, image_urls=?, module_id=?, front=?, back=?, updated=? WHERE id=?",
+        "UPDATE cards SET topic=?, tags=?, code_block=?, image_urls=?, module_id=?, source=?, front=?, back=?, updated=? WHERE id=?",
         params![
             card.topic,
             serde_json::to_string(&card.tags).unwrap_or_else(|_| String::from("[]")),
             card.code_block,
             serde_json::to_string(&card.image_urls).unwrap_or_else(|_| String::from("[]")),
             card.module_id,
+            card.source,
             card.front,
             card.back,
             card.updated.to_rfc3339(),
@@ -393,25 +403,29 @@ pub fn update_card(conn: &Connection, id: &str, patch: &CardPatch) -> Result<Car
     Ok(card)
 }
 
-/// 搜索卡片：LIKE 子串匹配 front/back/tags，可选按主题名过滤。
+/// 搜索卡片：LIKE 子串匹配 front/back/tags/source，可选按主题名过滤。
 pub fn search_cards(conn: &Connection, q: &str, topic: Option<&str>) -> Result<Vec<Card>> {
     let pattern = format!("%{q}%");
     let cards = match topic {
         Some(name) => {
             let mut stmt = conn.prepare(
                 "SELECT c.* FROM cards c JOIN topics t ON c.topic = t.id
-                 WHERE (c.front LIKE ? OR c.back LIKE ? OR c.tags LIKE ?) AND t.name = ?
+                 WHERE (c.front LIKE ? OR c.back LIKE ? OR c.tags LIKE ? OR c.source LIKE ?) AND t.name = ?
                  ORDER BY c.due",
             )?;
-            let rows = stmt.query_map(params![pattern, pattern, pattern, name], card_from_row)?;
+            let rows = stmt.query_map(
+                params![pattern, pattern, pattern, pattern, name],
+                card_from_row,
+            )?;
             rows.collect::<rusqlite::Result<Vec<_>>>()?
         }
         None => {
             let mut stmt = conn.prepare(
-                "SELECT * FROM cards WHERE front LIKE ? OR back LIKE ? OR tags LIKE ?
+                "SELECT * FROM cards WHERE front LIKE ? OR back LIKE ? OR tags LIKE ? OR source LIKE ?
                  ORDER BY due",
             )?;
-            let rows = stmt.query_map(params![pattern, pattern, pattern], card_from_row)?;
+            let rows =
+                stmt.query_map(params![pattern, pattern, pattern, pattern], card_from_row)?;
             rows.collect::<rusqlite::Result<Vec<_>>>()?
         }
     };
@@ -1746,5 +1760,25 @@ mod tests {
         assert!(list_pathway_modules(&c, &p.id).unwrap().is_empty());
         // 模块本身保留（不挂在 goal 下）
         assert!(get_module(&c, &m.id).is_ok());
+    }
+
+    #[test]
+    fn card_roundtrips_content_fields_including_source() {
+        let c = mem();
+        let t = seed_topic(&c);
+        let mut card = Card::new(t.id.clone(), "所有权是什么", "独占");
+        card.tags = vec!["rust".into(), "基础".into()];
+        card.code_block = Some("fn main() {}".into());
+        card.image_urls = vec!["https://e.com/a.png".into()];
+        card.source = Some("《Rust 编程之道》第 3 章".into());
+        insert_card(&c, &card).unwrap();
+
+        let got = get_card(&c, &card.id).unwrap();
+        assert_eq!(got.tags, vec!["rust", "基础"]);
+        assert_eq!(got.code_block.as_deref(), Some("fn main() {}"));
+        assert_eq!(got.image_urls, vec!["https://e.com/a.png"]);
+        assert_eq!(got.source.as_deref(), Some("《Rust 编程之道》第 3 章"));
+        // source 可被搜索命中
+        assert_eq!(search_cards(&c, "编程之道", None).unwrap().len(), 1);
     }
 }

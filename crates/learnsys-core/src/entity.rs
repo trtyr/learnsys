@@ -33,6 +33,8 @@ pub struct Card {
     pub code_block: Option<String>,
     /// 配图 URL 列表。
     pub image_urls: Vec<String>,
+    /// 出处（来自哪个视频 / 文章 / 文档，URL 或描述）。
+    pub source: Option<String>,
 }
 
 impl Card {
@@ -58,6 +60,7 @@ impl Card {
             tags: vec![],
             code_block: None,
             image_urls: vec![],
+            source: None,
         }
     }
 }
@@ -74,6 +77,8 @@ pub struct CardPatch {
     pub image_urls: Option<Vec<String>>,
     /// 挂到模块：`Some("")` 脱离，`Some(id)` 挂到模块，`None` 不改。
     pub module_id: Option<String>,
+    /// 出处：`Some("")` 清空，`Some(v)` 设置，`None` 不改。
+    pub source: Option<String>,
 }
 
 /// 目标编辑补丁。

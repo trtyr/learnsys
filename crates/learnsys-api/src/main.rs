@@ -138,6 +138,10 @@ struct CreateCard {
     topic: String,
     front: String,
     back: String,
+    tags: Option<Vec<String>>,
+    code_block: Option<String>,
+    image_urls: Option<Vec<String>>,
+    source: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -159,6 +163,7 @@ struct UpdateCard {
     code_block: Option<String>,
     image_urls: Option<Vec<String>>,
     module_id: Option<String>,
+    source: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -248,6 +253,10 @@ async fn create_card(
     let db = s.db.lock().unwrap();
     let topic = resolve_topic_by_name(&db, &body.topic)?;
     let mut card = Card::new(topic.id, body.front, body.back);
+    card.tags = body.tags.unwrap_or_default();
+    card.code_block = body.code_block.filter(|s| !s.is_empty());
+    card.image_urls = body.image_urls.unwrap_or_default();
+    card.source = body.source.filter(|s| !s.is_empty());
     repo::insert_card(&db, &card)?;
     name_topic(&db, &mut card);
     Ok((StatusCode::CREATED, Json(card)))
@@ -271,6 +280,7 @@ async fn update_card_handler(
         code_block: body.code_block,
         image_urls: body.image_urls,
         module_id: body.module_id,
+        source: body.source,
     };
     let mut card = repo::update_card(&db, &id, &patch)?;
     name_topic(&db, &mut card);
